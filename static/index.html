@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Akademik AI Aggregator</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- ─── Header ──────────────────────────────────────────────────────── -->
+<header class="header">
+    <div class="header-logo">
+        <span class="logo-icon">🎓</span>
+        <span>Akademik AI</span>
+    </div>
+    <div class="search-bar">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="searchInput" placeholder="Dosya veya bilgi ara..." oninput="handleSearch(this.value)">
+    </div>
+    <div class="header-actions">
+        <button class="icon-btn" title="Ayarlar">⚙️</button>
+        <div class="avatar">U</div>
+    </div>
+</header>
+
+<!-- ─── Sidebar ─────────────────────────────────────────────────────── -->
+<nav class="sidebar">
+    <button class="sidebar-new-btn" onclick="openUploadModal()">
+        <span class="plus-icon">➕</span>
+        Yeni
+    </button>
+
+    <button class="nav-item active" data-page="files" onclick="switchPage('files')">
+        <span class="nav-icon">📁</span> Dosyalarım
+    </button>
+    <button class="nav-item" data-page="ai" onclick="switchPage('ai')">
+        <span class="nav-icon">🤖</span> AI Asistan
+    </button>
+    <button class="nav-item" data-page="knowledge" onclick="switchPage('knowledge')">
+        <span class="nav-icon">📚</span> Bilgi Tabanı
+    </button>
+
+    <div class="sidebar-divider"></div>
+
+    <button class="nav-item" data-page="stats" onclick="switchPage('stats')">
+        <span class="nav-icon">📊</span> İstatistikler
+    </button>
+
+    <div class="sidebar-divider"></div>
+
+    <div class="storage-info">
+        <div id="storageText">Yükleniyor...</div>
+        <div class="storage-bar">
+            <div class="storage-bar-fill" id="storageBar" style="width: 0%"></div>
+        </div>
+    </div>
+</nav>
+
+<!-- ─── Main Content ────────────────────────────────────────────────── -->
+<main class="main-content">
+
+    <!-- Files Page -->
+    <div id="page-files">
+        <div class="section-title">
+            <span class="toggle-icon">▼</span>
+            Dosyalar
+        </div>
+        <div id="filesList"></div>
+    </div>
+
+    <!-- AI Page -->
+    <div id="page-ai" class="ai-panel">
+        <h2 style="margin-bottom: 8px;">🤖 AI Asistan</h2>
+        <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 16px;">
+            Veritabanındaki dosyalar ve bilgi tabanı hakkında sorular sorun.
+        </p>
+        <div class="ai-chat-messages" id="aiMessages">
+            <div class="ai-message assistant">
+                Merhaba! Ben akademik AI asistanınızım. Dosyalarınız ve bilgi tabanınız hakkında sorular sorabilirsiniz. Size yardımcı olmaya hazırım. 🎓
+            </div>
+        </div>
+        <div class="ai-input-area">
+            <input type="text" id="aiInput" placeholder="Bir soru sorun..." onkeydown="if(event.key==='Enter')sendAIQuery()">
+            <button onclick="sendAIQuery()" id="aiSendBtn">Gönder</button>
+        </div>
+    </div>
+
+    <!-- Knowledge Base Page -->
+    <div id="page-knowledge" class="kb-panel">
+        <h2 style="margin-bottom: 24px;">📚 Bilgi Tabanı</h2>
+
+        <div class="kb-form">
+            <h3>Yeni Bilgi Ekle</h3>
+            <div class="form-group">
+                <label>Başlık</label>
+                <input type="text" id="kbTitle" placeholder="Bilgi başlığı">
+            </div>
+            <div class="form-group">
+                <label>İçerik</label>
+                <textarea id="kbContent" placeholder="Bilgi içeriği..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>Kaynak</label>
+                <input type="text" id="kbSource" placeholder="Kaynak (opsiyonel)">
+            </div>
+            <div class="form-group">
+                <label>Kategori</label>
+                <select id="kbCategory">
+                    <option value="Genel">Genel</option>
+                    <option value="Akademik">Akademik</option>
+                    <option value="Araştırma">Araştırma</option>
+                    <option value="Ders Notu">Ders Notu</option>
+                    <option value="Makale">Makale</option>
+                    <option value="Tez">Tez</option>
+                    <option value="Diğer">Diğer</option>
+                </select>
+            </div>
+            <button class="btn-primary" onclick="addKnowledge()">Ekle</button>
+        </div>
+
+        <div id="kbList" class="kb-list"></div>
+    </div>
+
+    <!-- Stats Page -->
+    <div id="page-stats" style="display:none;">
+        <h2 style="margin-bottom: 24px;">📊 İstatistikler</h2>
+        <div class="stats-grid" id="statsGrid"></div>
+    </div>
+
+</main>
+
+<!-- ─── Upload Modal ────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="uploadModal">
+    <div class="modal">
+        <h2>📤 Dosya Yükle</h2>
+        <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+            <div class="drop-icon">📄</div>
+            <p>Dosyayı sürükleyin veya tıklayın</p>
+        </div>
+        <input type="file" id="fileInput" style="display:none" multiple onchange="handleFileSelect(this.files)">
+
+        <div id="selectedFiles" style="margin-bottom: 16px;"></div>
+
+        <div class="form-group">
+            <label>Açıklama</label>
+            <input type="text" id="uploadDesc" placeholder="Dosya açıklaması (opsiyonel)">
+        </div>
+        <div class="form-group">
+            <label>Kategori</label>
+            <select id="uploadCategory">
+                <option value="Genel">Genel</option>
+                <option value="Akademik">Akademik</option>
+                <option value="Ders Notu">Ders Notu</option>
+                <option value="Makale">Makale</option>
+                <option value="Tez">Tez</option>
+                <option value="Rapor">Rapor</option>
+                <option value="Sunum">Sunum</option>
+                <option value="Diğer">Diğer</option>
+            </select>
+        </div>
+
+        <div class="modal-actions">
+            <button class="btn-cancel" onclick="closeUploadModal()">İptal</button>
+            <button class="btn-primary" id="uploadBtn" onclick="uploadFiles()">Yükle</button>
+        </div>
+    </div>
+</div>
+
+<!-- ─── Toast Container ─────────────────────────────────────────────── -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
