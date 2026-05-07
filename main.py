@@ -12,8 +12,8 @@ from sqlalchemy.orm import Session
 
 from ai_module import query_ai
 from database import get_db, init_db
-from models import File as FileModel
-from models import KnowledgeBase, User
+from models import Academic, File as FileModel
+from models import KnowledgeBase, Publication, University, User
 from schemas import (
     AIQueryRequest,
     AIQueryResponse,
@@ -258,6 +258,138 @@ def ai_history(db: Session = Depends(get_db)):
     return db.query(AIQuery).order_by(AIQuery.created_at.desc()).limit(50).all()
 
 
+# ─── University Endpoints ────────────────────────────────────────────────────
+
+@app.get("/api/universities")
+def list_universities(
+    search: Optional[str] = None,
+    city: Optional[str] = None,
+    region: Optional[str] = None,
+    university_type: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    query = db.query(University)
+    if search:
+        query = query.filter(
+            University.name.ilike(f"%{search}%")
+            | University.city.ilike(f"%{search}%")
+        )
+    if city:
+        query = query.filter(University.city.ilike(f"%{city}%"))
+    if region:
+        query = query.filter(University.region.ilike(f"%{region}%"))
+    if university_type:
+        query = query.filter(University.university_type == university_type)
+    results = query.order_by(University.name).all()
+    return [
+        {
+            "id": u.id, "name": u.name, "city": u.city, "region": u.region,
+            "type": u.university_type, "website": u.website,
+            "established": u.established_year, "academic_count": len(u.academics),
+        }
+        for u in results
+    ]
+
+
+@app.get("/api/universities/{uni_id}")
+def get_university(uni_id: int, db: Session = Depends(get_db)):
+    uni = db.query(University).filter(University.id == uni_id).first()
+    if not uni:
+        raise HTTPException(status_code=404, detail="Üniversite bulunamadı")
+    return {
+        "id": uni.id, "name": uni.name, "city": uni.city, "region": uni.region,
+        "type": uni.university_type, "website": uni.website,
+        "established": uni.established_year,
+        "academics": [
+            {"id": a.id, "name": a.full_name, "title": a.title, "department": a.department}
+            for a in uni.academics
+        ],
+    }
+
+
+# ─── Academic Endpoints ─────────────────────────────────────────────────────
+
+@app.get("/api/academics")
+def list_academics(
+    search: Optional[str] = None,
+    university_id: Optional[int] = None,
+    title: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    query = db.query(Academic)
+    if search:
+        query = query.filter(
+            Academic.full_name.ilike(f"%{search}%")
+            | Academic.department.ilike(f"%{search}%")
+            | Academic.research_areas.ilike(f"%{search}%")
+        )
+    if university_id:
+        query = query.filter(Academic.university_id == university_id)
+    if title:
+        query = query.filter(Academic.title.ilike(f"%{title}%"))
+    results = query.order_by(Academic.full_name).all()
+    return [
+        {
+            "id": a.id, "name": a.full_name, "title": a.title,
+            "department": a.department, "faculty": a.faculty,
+            "university": a.university.name if a.university else None,
+            "university_id": a.university_id,
+            "research_areas": a.research_areas, "email": a.email,
+            "source": a.source,
+        }
+        for a in results
+    ]
+
+
+@app.get("/api/academics/{academic_id}")
+def get_academic(academic_id: int, db: Session = Depends(get_db)):
+    acad = db.query(Academic).filter(Academic.id == academic_id).first()
+    if not acad:
+        raise HTTPException(status_code=404, detail="Akademisyen bulunamadı")
+    return {
+        "id": acad.id, "name": acad.full_name, "title": acad.title,
+        "department": acad.department, "faculty": acad.faculty,
+        "university": acad.university.name if acad.university else None,
+        "research_areas": acad.research_areas, "email": acad.email,
+        "publications": [
+            {"id": p.id, "title": p.title, "journal": p.journal, "year": p.year}
+            for p in acad.publications
+        ],
+    }
+
+
+# ─── Publication Endpoints ───────────────────────────────────────────────────
+
+@app.get("/api/publications")
+def list_publications(
+    search: Optional[str] = None,
+    academic_id: Optional[int] = None,
+    year: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    query = db.query(Publication)
+    if search:
+        query = query.filter(
+            Publication.title.ilike(f"%{search}%")
+            | Publication.authors.ilike(f"%{search}%")
+            | Publication.journal.ilike(f"%{search}%")
+        )
+    if academic_id:
+        query = query.filter(Publication.academic_id == academic_id)
+    if year:
+        query = query.filter(Publication.year == year)
+    results = query.order_by(Publication.year.desc()).all()
+    return [
+        {
+            "id": p.id, "title": p.title, "authors": p.authors,
+            "journal": p.journal, "year": p.year, "doi": p.doi,
+            "type": p.publication_type, "citations": p.citation_count,
+            "academic": p.academic.full_name if p.academic else None,
+        }
+        for p in results
+    ]
+
+
 # ─── Stats ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/stats")
@@ -269,6 +401,9 @@ def get_stats(db: Session = Depends(get_db)):
         "total_users": db.query(User).count(),
         "total_queries": db.query(AIQuery).count(),
         "total_knowledge": db.query(KnowledgeBase).count(),
+        "total_universities": db.query(University).count(),
+        "total_academics": db.query(Academic).count(),
+        "total_publications": db.query(Publication).count(),
     }
 
 

@@ -11,14 +11,26 @@ function switchPage(page) {
         item.classList.toggle('active', item.dataset.page === page);
     });
 
-    document.getElementById('page-files').style.display = page === 'files' ? 'block' : 'none';
-    document.getElementById('page-ai').classList.toggle('active', page === 'ai');
-    document.getElementById('page-knowledge').classList.toggle('active', page === 'knowledge');
-    document.getElementById('page-stats').style.display = page === 'stats' ? 'block' : 'none';
+    const pages = ['files', 'ai', 'knowledge', 'stats', 'universities', 'academics', 'publications'];
+    pages.forEach(p => {
+        const el = document.getElementById('page-' + p);
+        if (!el) return;
+        if (p === 'ai' || p === 'knowledge') {
+            el.classList.toggle('active', p === page);
+        } else {
+            el.style.display = p === page ? 'block' : 'none';
+        }
+    });
+    // hide ai/knowledge when switching to other pages
+    if (page !== 'ai') document.getElementById('page-ai').classList.remove('active');
+    if (page !== 'knowledge') document.getElementById('page-knowledge').classList.remove('active');
 
     if (page === 'files') loadFiles();
     if (page === 'knowledge') loadKnowledge();
     if (page === 'stats') loadStats();
+    if (page === 'universities') loadUniversities();
+    if (page === 'academics') loadAcademics();
+    if (page === 'publications') loadPublications();
 }
 
 // ─── File Operations ─────────────────────────────────────────────────────────
@@ -382,8 +394,16 @@ async function loadStats() {
                 <div class="stat-label">🤖 AI Sorgusu</div>
             </div>
             <div class="stat-card">
-                <div class="stat-number">${stats.total_users}</div>
-                <div class="stat-label">👤 Kullanıcı</div>
+                <div class="stat-number">${stats.total_universities || 0}</div>
+                <div class="stat-label">🏛️ Üniversite</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">${stats.total_academics || 0}</div>
+                <div class="stat-label">👨‍🏫 Akademisyen</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">${stats.total_publications || 0}</div>
+                <div class="stat-label">📄 Yayın</div>
             </div>
         `;
     } catch (err) {
@@ -418,6 +438,189 @@ function showToast(message) {
     toast.textContent = message;
     container.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
+}
+
+// ─── Universities ────────────────────────────────────────────────────────────
+
+let uniSearchTimeout;
+async function loadUniversities() {
+    clearTimeout(uniSearchTimeout);
+    uniSearchTimeout = setTimeout(async () => {
+        const params = new URLSearchParams();
+        const search = document.getElementById('uniSearch')?.value;
+        const region = document.getElementById('uniRegion')?.value;
+        const type = document.getElementById('uniType')?.value;
+        if (search) params.set('search', search);
+        if (region) params.set('region', region);
+        if (type) params.set('university_type', type);
+        try {
+            const res = await fetch(`${API}/api/universities?${params}`);
+            const unis = await res.json();
+            document.getElementById('uniCount').textContent = `${unis.length} üniversite bulundu`;
+            document.getElementById('uniList').innerHTML = unis.map(u => `
+                <div class="card-item" onclick="showUniversityDetail(${u.id})">
+                    <div class="card-header">
+                        <span class="card-icon">🏛️</span>
+                        <div class="card-title">${escapeHtml(u.name)}</div>
+                    </div>
+                    <div class="card-meta">
+                        <span>📍 ${escapeHtml(u.city || '')}</span>
+                        <span>🌍 ${escapeHtml(u.region || '')}</span>
+                        <span>🏢 ${escapeHtml(u.type || '')}</span>
+                        ${u.established ? `<span>📅 ${u.established}</span>` : ''}
+                        <span>👨‍🏫 ${u.academic_count} akademisyen</span>
+                    </div>
+                    ${u.website ? `<div class="card-link"><a href="${u.website}" target="_blank" onclick="event.stopPropagation()">🔗 Web Sitesi</a></div>` : ''}
+                </div>
+            `).join('');
+        } catch (err) {
+            console.error('Üniversiteler yüklenemedi:', err);
+        }
+    }, 250);
+}
+
+async function showUniversityDetail(id) {
+    try {
+        const res = await fetch(`${API}/api/universities/${id}`);
+        const uni = await res.json();
+        document.getElementById('universityDetail').innerHTML = `
+            <h2>🏛️ ${escapeHtml(uni.name)}</h2>
+            <div class="detail-grid">
+                <div class="detail-item"><strong>📍 Şehir:</strong> ${escapeHtml(uni.city || '-')}</div>
+                <div class="detail-item"><strong>🌍 Bölge:</strong> ${escapeHtml(uni.region || '-')}</div>
+                <div class="detail-item"><strong>🏢 Tür:</strong> ${escapeHtml(uni.type || '-')}</div>
+                ${uni.established ? `<div class="detail-item"><strong>📅 Kuruluş:</strong> ${uni.established}</div>` : ''}
+                ${uni.website ? `<div class="detail-item"><strong>🔗 Web:</strong> <a href="${uni.website}" target="_blank">${uni.website}</a></div>` : ''}
+            </div>
+            ${uni.academics.length > 0 ? `
+                <h3 style="margin-top:20px;">👨‍🏫 Akademisyenler (${uni.academics.length})</h3>
+                <div class="detail-list">
+                    ${uni.academics.map(a => `
+                        <div class="detail-list-item" onclick="showAcademicDetail(${a.id}); document.getElementById('universityModal').style.display='none';">
+                            <strong>${escapeHtml(a.title || '')} ${escapeHtml(a.name)}</strong>
+                            <span style="color:var(--text-secondary);font-size:13px;">${escapeHtml(a.department || '')}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : '<p style="color:var(--text-secondary);margin-top:16px;">Henüz bu üniversitede kayıtlı akademisyen yok.</p>'}
+        `;
+        document.getElementById('universityModal').style.display = 'flex';
+    } catch (err) {
+        console.error('Üniversite detayı yüklenemedi:', err);
+    }
+}
+
+// ─── Academics ───────────────────────────────────────────────────────────────
+
+let acadSearchTimeout;
+async function loadAcademics() {
+    clearTimeout(acadSearchTimeout);
+    acadSearchTimeout = setTimeout(async () => {
+        const params = new URLSearchParams();
+        const search = document.getElementById('acadSearch')?.value;
+        const title = document.getElementById('acadTitle')?.value;
+        if (search) params.set('search', search);
+        if (title) params.set('title', title);
+        try {
+            const res = await fetch(`${API}/api/academics?${params}`);
+            const acads = await res.json();
+            document.getElementById('acadCount').textContent = `${acads.length} akademisyen bulundu`;
+            document.getElementById('acadList').innerHTML = acads.map(a => `
+                <div class="card-item" onclick="showAcademicDetail(${a.id})">
+                    <div class="card-header">
+                        <span class="card-icon">👨‍🏫</span>
+                        <div class="card-title">${escapeHtml(a.title || '')} ${escapeHtml(a.name)}</div>
+                    </div>
+                    <div class="card-meta">
+                        <span>🏛️ ${escapeHtml(a.university || 'Bilinmeyen')}</span>
+                        <span>🏫 ${escapeHtml(a.department || '')}</span>
+                    </div>
+                    <div class="card-tags">
+                        ${(a.research_areas || '').split(',').map(area => 
+                            `<span class="tag">${escapeHtml(area.trim())}</span>`
+                        ).join('')}
+                    </div>
+                </div>
+            `).join('');
+        } catch (err) {
+            console.error('Akademisyenler yüklenemedi:', err);
+        }
+    }, 250);
+}
+
+async function showAcademicDetail(id) {
+    try {
+        const res = await fetch(`${API}/api/academics/${id}`);
+        const a = await res.json();
+        document.getElementById('academicDetail').innerHTML = `
+            <h2>👨‍🏫 ${escapeHtml(a.title || '')} ${escapeHtml(a.name)}</h2>
+            <div class="detail-grid">
+                <div class="detail-item"><strong>🏛️ Üniversite:</strong> ${escapeHtml(a.university || '-')}</div>
+                <div class="detail-item"><strong>🏫 Fakülte:</strong> ${escapeHtml(a.faculty || '-')}</div>
+                <div class="detail-item"><strong>💼 Bölüm:</strong> ${escapeHtml(a.department || '-')}</div>
+                ${a.email ? `<div class="detail-item"><strong>📧 E-posta:</strong> ${escapeHtml(a.email)}</div>` : ''}
+            </div>
+            <div style="margin-top:16px;">
+                <strong>🔬 Araştırma Alanları:</strong>
+                <div class="card-tags" style="margin-top:8px;">
+                    ${(a.research_areas || '').split(',').map(area => 
+                        `<span class="tag">${escapeHtml(area.trim())}</span>`
+                    ).join('')}
+                </div>
+            </div>
+            ${a.publications && a.publications.length > 0 ? `
+                <h3 style="margin-top:20px;">📄 Yayınlar (${a.publications.length})</h3>
+                <div class="detail-list">
+                    ${a.publications.map(p => `
+                        <div class="detail-list-item">
+                            <strong>${escapeHtml(p.title)}</strong>
+                            <span style="color:var(--text-secondary);font-size:13px;">${escapeHtml(p.journal || '')} ${p.year ? '(' + p.year + ')' : ''}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : '<p style="color:var(--text-secondary);margin-top:16px;">Kayıtlı yayın bulunmamaktadır.</p>'}
+        `;
+        document.getElementById('academicModal').style.display = 'flex';
+    } catch (err) {
+        console.error('Akademisyen detayı yüklenemedi:', err);
+    }
+}
+
+// ─── Publications ────────────────────────────────────────────────────────────
+
+let pubSearchTimeout;
+async function loadPublications() {
+    clearTimeout(pubSearchTimeout);
+    pubSearchTimeout = setTimeout(async () => {
+        const params = new URLSearchParams();
+        const search = document.getElementById('pubSearch')?.value;
+        const year = document.getElementById('pubYear')?.value;
+        if (search) params.set('search', search);
+        if (year) params.set('year', year);
+        try {
+            const res = await fetch(`${API}/api/publications?${params}`);
+            const pubs = await res.json();
+            document.getElementById('pubCount').textContent = `${pubs.length} yayın bulundu`;
+            document.getElementById('pubList').innerHTML = pubs.map(p => `
+                <div class="card-item">
+                    <div class="card-header">
+                        <span class="card-icon">📄</span>
+                        <div class="card-title">${escapeHtml(p.title)}</div>
+                    </div>
+                    <div class="card-meta">
+                        <span>👤 ${escapeHtml(p.authors || 'Bilinmeyen')}</span>
+                        <span>📖 ${escapeHtml(p.journal || '')}</span>
+                        ${p.year ? `<span>📅 ${p.year}</span>` : ''}
+                        ${p.citations ? `<span>📈 ${p.citations} atıf</span>` : ''}
+                        <span>🏷️ ${escapeHtml(p.type || 'Makale')}</span>
+                    </div>
+                    ${p.academic ? `<div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">🏛️ Akademisyen: ${escapeHtml(p.academic)}</div>` : ''}
+                </div>
+            `).join('');
+        } catch (err) {
+            console.error('Yayınlar yüklenemedi:', err);
+        }
+    }, 250);
 }
 
 // ─── Init ────────────────────────────────────────────────────────────────────

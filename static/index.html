@@ -44,6 +44,18 @@
 
     <div class="sidebar-divider"></div>
 
+    <button class="nav-item" data-page="universities" onclick="switchPage('universities')">
+        <span class="nav-icon">🏛️</span> Üniversiteler
+    </button>
+    <button class="nav-item" data-page="academics" onclick="switchPage('academics')">
+        <span class="nav-icon">👨‍🏫</span> Akademisyenler
+    </button>
+    <button class="nav-item" data-page="publications" onclick="switchPage('publications')">
+        <span class="nav-icon">📄</span> Yayınlar
+    </button>
+
+    <div class="sidebar-divider"></div>
+
     <button class="nav-item" data-page="stats" onclick="switchPage('stats')">
         <span class="nav-icon">📊</span> İstatistikler
     </button>
@@ -121,6 +133,96 @@
         </div>
 
         <div id="kbList" class="kb-list"></div>
+    </div>
+
+    <!-- Universities Page -->
+    <div id="page-universities" style="display:none;">
+        <h2 style="margin-bottom: 16px;">🏛️ Üniversiteler</h2>
+        <div class="filter-bar">
+            <input type="text" id="uniSearch" placeholder="Üniversite ara..." oninput="loadUniversities()">
+            <select id="uniRegion" onchange="loadUniversities()">
+                <option value="">Tüm Bölgeler</option>
+                <option value="Marmara">Marmara</option>
+                <option value="İç Anadolu">İç Anadolu</option>
+                <option value="Ege">Ege</option>
+                <option value="Akdeniz">Akdeniz</option>
+                <option value="Karadeniz">Karadeniz</option>
+                <option value="Doğu Anadolu">Doğu Anadolu</option>
+                <option value="Güneydoğu Anadolu">Güneydoğu Anadolu</option>
+                <option value="ABD">ABD</option>
+                <option value="İngiltere">İngiltere</option>
+                <option value="Almanya">Almanya</option>
+                <option value="Kanada">Kanada</option>
+                <option value="Fransa">Fransa</option>
+                <option value="İsviçre">İsviçre</option>
+                <option value="Japonya">Japonya</option>
+                <option value="Çin">Çin</option>
+                <option value="Avustralya">Avustralya</option>
+            </select>
+            <select id="uniType" onchange="loadUniversities()">
+                <option value="">Tüm Türler</option>
+                <option value="Devlet">Devlet</option>
+                <option value="Vakıf">Vakıf</option>
+                <option value="Özel">Özel</option>
+            </select>
+        </div>
+        <div id="uniCount" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;"></div>
+        <div id="uniList"></div>
+    </div>
+
+    <!-- Academics Page -->
+    <div id="page-academics" style="display:none;">
+        <h2 style="margin-bottom: 16px;">👨‍🏫 Akademisyenler</h2>
+        <div class="filter-bar">
+            <input type="text" id="acadSearch" placeholder="Akademisyen, bölüm veya araştırma alanı ara..." oninput="loadAcademics()">
+            <select id="acadTitle" onchange="loadAcademics()">
+                <option value="">Tüm Ünvanlar</option>
+                <option value="Prof.">Prof. Dr.</option>
+                <option value="Doç.">Doç. Dr.</option>
+                <option value="Dr. Öğr.">Dr. Öğr. Üyesi</option>
+            </select>
+        </div>
+        <div id="acadCount" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;"></div>
+        <div id="acadList"></div>
+    </div>
+
+    <!-- Academic Detail Modal -->
+    <div class="modal-overlay" id="academicModal" style="display:none;">
+        <div class="modal" style="max-width:700px;">
+            <div id="academicDetail"></div>
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="document.getElementById('academicModal').style.display='none'">Kapat</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- University Detail Modal -->
+    <div class="modal-overlay" id="universityModal" style="display:none;">
+        <div class="modal" style="max-width:700px;">
+            <div id="universityDetail"></div>
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="document.getElementById('universityModal').style.display='none'">Kapat</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Publications Page -->
+    <div id="page-publications" style="display:none;">
+        <h2 style="margin-bottom: 16px;">📄 Yayınlar</h2>
+        <div class="filter-bar">
+            <input type="text" id="pubSearch" placeholder="Yayın, yazar veya dergi ara..." oninput="loadPublications()">
+            <select id="pubYear" onchange="loadPublications()">
+                <option value="">Tüm Yıllar</option>
+                <option value="2024">2024</option>
+                <option value="2023">2023</option>
+                <option value="2022">2022</option>
+                <option value="2021">2021</option>
+                <option value="2020">2020</option>
+                <option value="2019">2019</option>
+            </select>
+        </div>
+        <div id="pubCount" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;"></div>
+        <div id="pubList"></div>
     </div>
 
     <!-- Stats Page -->
