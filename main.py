@@ -1,4 +1,5 @@
 import os
+import threading
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -11,9 +12,18 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from ai_module import query_ai
-from database import get_db, init_db
+from database import SessionLocal, get_db, init_db
 from models import Academic, File as FileModel
 from models import KnowledgeBase, Publication, University, User
+from openalex_module import (
+    fetch_authors,
+    fetch_institutions,
+    fetch_works,
+    search_openalex_authors,
+    search_openalex_institutions,
+    search_openalex_works,
+    sync_openalex_data,
+)
 from schemas import (
     AIQueryRequest,
     AIQueryResponse,
@@ -28,8 +38,8 @@ from schemas import (
 
 app = FastAPI(
     title="Akademik AI Aggregator",
-    description="Akademik dosya yönetimi ve yapay zeka destekli bilgi sistemi",
-    version="1.0.0",
+    description="Akademik dosya yonetimi ve yapay zeka destekli bilgi sistemi",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -44,6 +54,9 @@ UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Track background sync status
+_sync_status: dict = {"running": False, "last_result": None, "error": None}
 
 
 @app.on_event("startup")
@@ -388,6 +401,185 @@ def list_publications(
         }
         for p in results
     ]
+
+
+# ─── OpenAlex Endpoints ─────────────────────────────────────────────────────
+
+@app.post("/api/openalex/sync")
+def openalex_sync(
+    search: str = "",
+    country_code: str = "TR",
+    max_pages: int = 3,
+    db: Session = Depends(get_db),
+):
+    """Trigger a full OpenAlex sync (institutions + authors + works)."""
+    global _sync_status
+    if _sync_status["running"]:
+        return {"detail": "Senkronizasyon zaten devam ediyor", "status": "running"}
+
+    _sync_status["running"] = True
+    _sync_status["error"] = None
+
+    def _run_sync():
+        global _sync_status
+        sync_db = SessionLocal()
+        try:
+            result = sync_openalex_data(
+                sync_db, search=search, country_code=country_code,
+                max_pages=max_pages,
+            )
+            _sync_status["last_result"] = result
+        except Exception as e:
+            _sync_status["error"] = str(e)
+        finally:
+            sync_db.close()
+            _sync_status["running"] = False
+
+    thread = threading.Thread(target=_run_sync, daemon=True)
+    thread.start()
+
+    return {"detail": "Senkronizasyon baslatildi", "status": "started"}
+
+
+@app.get("/api/openalex/sync/status")
+def openalex_sync_status():
+    """Check the status of the current or last OpenAlex sync."""
+    return _sync_status
+
+
+@app.get("/api/openalex/search/works")
+def openalex_search_works_endpoint(query: str, page: int = 1):
+    """Search OpenAlex works directly (live search, not saved to DB)."""
+    try:
+        data = search_openalex_works(query, page=page)
+        results = []
+        for item in data.get("results", []):
+            authorships = item.get("authorships", []) or []
+            authors_str = ", ".join(
+                a.get("author", {}).get("display_name", "")
+                for a in authorships[:5]
+                if a.get("author", {}).get("display_name")
+            )
+            journal = ""
+            loc = item.get("primary_location", {}) or {}
+            if loc.get("source"):
+                journal = loc["source"].get("display_name", "")
+
+            results.append({
+                "title": item.get("title", ""),
+                "authors": authors_str,
+                "journal": journal,
+                "year": item.get("publication_year"),
+                "doi": item.get("doi", ""),
+                "citations": item.get("cited_by_count", 0),
+                "type": item.get("type", ""),
+                "url": item.get("id", ""),
+                "open_access": item.get("open_access", {}).get("is_oa", False),
+            })
+        return {
+            "total": data.get("meta", {}).get("count", 0),
+            "results": results,
+            "page": page,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/openalex/search/authors")
+def openalex_search_authors_endpoint(query: str, page: int = 1):
+    """Search OpenAlex authors directly."""
+    try:
+        data = search_openalex_authors(query, page=page)
+        results = []
+        for item in data.get("results", []):
+            last_inst = item.get("last_known_institutions") or []
+            institution = last_inst[0].get("display_name", "") if last_inst else ""
+            topics = item.get("topics", []) or []
+            areas = ", ".join(
+                t.get("display_name", "") for t in topics[:5]
+                if t.get("display_name")
+            )
+            results.append({
+                "name": item.get("display_name", ""),
+                "institution": institution,
+                "works_count": item.get("works_count", 0),
+                "cited_by_count": item.get("cited_by_count", 0),
+                "research_areas": areas,
+                "url": item.get("id", ""),
+            })
+        return {
+            "total": data.get("meta", {}).get("count", 0),
+            "results": results,
+            "page": page,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/openalex/search/institutions")
+def openalex_search_institutions_endpoint(query: str, page: int = 1):
+    """Search OpenAlex institutions directly."""
+    try:
+        data = search_openalex_institutions(query, page=page)
+        results = []
+        for item in data.get("results", []):
+            geo = item.get("geo", {}) or {}
+            results.append({
+                "name": item.get("display_name", ""),
+                "city": geo.get("city", ""),
+                "country": geo.get("country", ""),
+                "type": item.get("type", ""),
+                "works_count": item.get("works_count", 0),
+                "cited_by_count": item.get("cited_by_count", 0),
+                "url": item.get("id", ""),
+                "homepage": item.get("homepage_url", ""),
+            })
+        return {
+            "total": data.get("meta", {}).get("count", 0),
+            "results": results,
+            "page": page,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/openalex/import/works")
+def openalex_import_works(
+    search: str = "",
+    page: int = 1,
+    per_page: int = 50,
+    db: Session = Depends(get_db),
+):
+    """Import works from OpenAlex into local DB."""
+    result = fetch_works(db, search=search, page=page, per_page=per_page)
+    return result
+
+
+@app.post("/api/openalex/import/authors")
+def openalex_import_authors(
+    search: str = "",
+    page: int = 1,
+    per_page: int = 50,
+    db: Session = Depends(get_db),
+):
+    """Import authors from OpenAlex into local DB."""
+    result = fetch_authors(db, search=search, page=page, per_page=per_page)
+    return result
+
+
+@app.post("/api/openalex/import/institutions")
+def openalex_import_institutions(
+    search: str = "",
+    country_code: str = "",
+    page: int = 1,
+    per_page: int = 50,
+    db: Session = Depends(get_db),
+):
+    """Import institutions from OpenAlex into local DB."""
+    result = fetch_institutions(
+        db, search=search, country_code=country_code, page=page, per_page=per_page,
+    )
+    return result
 
 
 # ─── Stats ───────────────────────────────────────────────────────────────────

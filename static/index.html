@@ -5,274 +5,180 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Akademik AI Aggregator</title>
     <link rel="stylesheet" href="/static/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Google+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
 </head>
 <body>
-
-<!-- ─── Header ──────────────────────────────────────────────────────── -->
 <header class="header">
-    <div class="header-logo">
-        <span class="logo-icon">🎓</span>
-        <span>Akademik AI</span>
+    <div class="header-left">
+        <button class="icon-btn menu-toggle" onclick="toggleSidebar()"><span class="material-icons-outlined">menu</span></button>
+        <div class="header-logo">
+            <span class="material-icons-outlined logo-icon">school</span>
+            <span class="logo-text">Akademik AI</span>
+        </div>
     </div>
     <div class="search-bar">
-        <span class="search-icon">🔍</span>
-        <input type="text" id="searchInput" placeholder="Dosya veya bilgi ara..." oninput="handleSearch(this.value)">
+        <span class="material-icons-outlined search-icon">search</span>
+        <input type="text" id="searchInput" placeholder="Dosya, akademisyen veya yayin ara..." oninput="handleSearch(this.value)">
     </div>
     <div class="header-actions">
-        <button class="icon-btn" title="Ayarlar">⚙️</button>
+        <button class="icon-btn" title="Bildirimler"><span class="material-icons-outlined">notifications</span></button>
+        <button class="icon-btn" title="Ayarlar"><span class="material-icons-outlined">settings</span></button>
         <div class="avatar">U</div>
     </div>
 </header>
-
-<!-- ─── Sidebar ─────────────────────────────────────────────────────── -->
-<nav class="sidebar">
-    <button class="sidebar-new-btn" onclick="openUploadModal()">
-        <span class="plus-icon">➕</span>
-        Yeni
-    </button>
-
-    <button class="nav-item active" data-page="files" onclick="switchPage('files')">
-        <span class="nav-icon">📁</span> Dosyalarım
-    </button>
-    <button class="nav-item" data-page="ai" onclick="switchPage('ai')">
-        <span class="nav-icon">🤖</span> AI Asistan
-    </button>
-    <button class="nav-item" data-page="knowledge" onclick="switchPage('knowledge')">
-        <span class="nav-icon">📚</span> Bilgi Tabanı
-    </button>
-
+<nav class="sidebar" id="sidebar">
+    <button class="sidebar-new-btn" onclick="openUploadModal()"><span class="material-icons-outlined">add</span> Yeni</button>
+    <div class="nav-section">
+        <button class="nav-item active" data-page="files" onclick="switchPage('files')"><span class="material-icons-outlined">folder</span> Dosyalarim</button>
+        <button class="nav-item" data-page="ai" onclick="switchPage('ai')"><span class="material-icons-outlined">smart_toy</span> AI Asistan</button>
+        <button class="nav-item" data-page="knowledge" onclick="switchPage('knowledge')"><span class="material-icons-outlined">menu_book</span> Bilgi Tabani</button>
+    </div>
     <div class="sidebar-divider"></div>
-
-    <button class="nav-item" data-page="universities" onclick="switchPage('universities')">
-        <span class="nav-icon">🏛️</span> Üniversiteler
-    </button>
-    <button class="nav-item" data-page="academics" onclick="switchPage('academics')">
-        <span class="nav-icon">👨‍🏫</span> Akademisyenler
-    </button>
-    <button class="nav-item" data-page="publications" onclick="switchPage('publications')">
-        <span class="nav-icon">📄</span> Yayınlar
-    </button>
-
+    <div class="nav-section">
+        <div class="nav-section-title">Akademik Veri</div>
+        <button class="nav-item" data-page="universities" onclick="switchPage('universities')"><span class="material-icons-outlined">account_balance</span> Universiteler</button>
+        <button class="nav-item" data-page="academics" onclick="switchPage('academics')"><span class="material-icons-outlined">person</span> Akademisyenler</button>
+        <button class="nav-item" data-page="publications" onclick="switchPage('publications')"><span class="material-icons-outlined">article</span> Yayinlar</button>
+    </div>
     <div class="sidebar-divider"></div>
-
-    <button class="nav-item" data-page="stats" onclick="switchPage('stats')">
-        <span class="nav-icon">📊</span> İstatistikler
-    </button>
-
+    <div class="nav-section">
+        <div class="nav-section-title">OpenAlex</div>
+        <button class="nav-item" data-page="openalex" onclick="switchPage('openalex')"><span class="material-icons-outlined">cloud_download</span> Veri Cek</button>
+    </div>
     <div class="sidebar-divider"></div>
-
-    <div class="storage-info">
-        <div id="storageText">Yükleniyor...</div>
-        <div class="storage-bar">
-            <div class="storage-bar-fill" id="storageBar" style="width: 0%"></div>
-        </div>
+    <div class="nav-section">
+        <button class="nav-item" data-page="stats" onclick="switchPage('stats')"><span class="material-icons-outlined">analytics</span> Istatistikler</button>
+    </div>
+    <div class="sidebar-storage">
+        <div class="storage-label" id="storageText">Yukleniyor...</div>
+        <div class="storage-bar"><div class="storage-bar-fill" id="storageBar" style="width:0%"></div></div>
     </div>
 </nav>
-
-<!-- ─── Main Content ────────────────────────────────────────────────── -->
-<main class="main-content">
-
-    <!-- Files Page -->
-    <div id="page-files">
-        <div class="section-title">
-            <span class="toggle-icon">▼</span>
-            Dosyalar
-        </div>
-        <div id="filesList"></div>
-    </div>
-
-    <!-- AI Page -->
-    <div id="page-ai" class="ai-panel">
-        <h2 style="margin-bottom: 8px;">🤖 AI Asistan</h2>
-        <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 16px;">
-            Veritabanındaki dosyalar ve bilgi tabanı hakkında sorular sorun.
-        </p>
-        <div class="ai-chat-messages" id="aiMessages">
-            <div class="ai-message assistant">
-                Merhaba! Ben akademik AI asistanınızım. Dosyalarınız ve bilgi tabanınız hakkında sorular sorabilirsiniz. Size yardımcı olmaya hazırım. 🎓
+<main class="main-content" id="mainContent">
+    <div id="page-files" class="page active-page">
+        <div class="page-header"><h1>Dosyalarim</h1>
+            <div class="page-header-actions">
+                <button class="btn-outlined" onclick="loadFiles()"><span class="material-icons-outlined">refresh</span> Yenile</button>
+                <button class="btn-primary" onclick="openUploadModal()"><span class="material-icons-outlined">upload_file</span> Yukle</button>
             </div>
         </div>
-        <div class="ai-input-area">
-            <input type="text" id="aiInput" placeholder="Bir soru sorun..." onkeydown="if(event.key==='Enter')sendAIQuery()">
-            <button onclick="sendAIQuery()" id="aiSendBtn">Gönder</button>
+        <div id="filesList" class="files-grid"></div>
+        <div id="filesEmpty" class="empty-state" style="display:none;">
+            <span class="material-icons-outlined empty-icon">folder_open</span><h3>Henuz dosya yok</h3><p>Dosya yuklemek icin Yukle butonuna tiklayin</p>
         </div>
     </div>
-
-    <!-- Knowledge Base Page -->
-    <div id="page-knowledge" class="kb-panel">
-        <h2 style="margin-bottom: 24px;">📚 Bilgi Tabanı</h2>
-
-        <div class="kb-form">
-            <h3>Yeni Bilgi Ekle</h3>
-            <div class="form-group">
-                <label>Başlık</label>
-                <input type="text" id="kbTitle" placeholder="Bilgi başlığı">
+    <div id="page-ai" class="page">
+        <div class="ai-container">
+            <div class="ai-header"><span class="material-icons-outlined ai-header-icon">smart_toy</span><div><h2>AI Asistan</h2><p>Veritabanindaki dosyalar ve bilgi tabani hakkinda sorular sorun.</p></div></div>
+            <div class="ai-messages" id="aiMessages">
+                <div class="ai-msg assistant"><span class="material-icons-outlined msg-avatar">smart_toy</span><div class="msg-content">Merhaba! Ben akademik AI asistaniyim. Dosyalariniz ve bilgi tabaniniz hakkinda sorular sorabilirsiniz.</div></div>
             </div>
-            <div class="form-group">
-                <label>İçerik</label>
-                <textarea id="kbContent" placeholder="Bilgi içeriği..."></textarea>
+            <div class="ai-input-area">
+                <input type="text" id="aiInput" placeholder="Bir soru sorun..." onkeydown="if(event.key==='Enter')sendAIQuery()">
+                <button class="ai-send-btn" onclick="sendAIQuery()" id="aiSendBtn"><span class="material-icons-outlined">send</span></button>
             </div>
-            <div class="form-group">
-                <label>Kaynak</label>
-                <input type="text" id="kbSource" placeholder="Kaynak (opsiyonel)">
-            </div>
-            <div class="form-group">
-                <label>Kategori</label>
-                <select id="kbCategory">
-                    <option value="Genel">Genel</option>
-                    <option value="Akademik">Akademik</option>
-                    <option value="Araştırma">Araştırma</option>
-                    <option value="Ders Notu">Ders Notu</option>
-                    <option value="Makale">Makale</option>
-                    <option value="Tez">Tez</option>
-                    <option value="Diğer">Diğer</option>
-                </select>
-            </div>
-            <button class="btn-primary" onclick="addKnowledge()">Ekle</button>
         </div>
-
-        <div id="kbList" class="kb-list"></div>
     </div>
-
-    <!-- Universities Page -->
-    <div id="page-universities" style="display:none;">
-        <h2 style="margin-bottom: 16px;">🏛️ Üniversiteler</h2>
+    <div id="page-knowledge" class="page">
+        <div class="page-header"><h1>Bilgi Tabani</h1></div>
+        <div class="kb-layout">
+            <div class="kb-form-card"><h3>Yeni Bilgi Ekle</h3>
+                <div class="form-group"><label>Baslik</label><input type="text" id="kbTitle" placeholder="Bilgi basligi"></div>
+                <div class="form-group"><label>Icerik</label><textarea id="kbContent" placeholder="Bilgi icerigi..." rows="4"></textarea></div>
+                <div class="form-row">
+                    <div class="form-group"><label>Kaynak</label><input type="text" id="kbSource" placeholder="Kaynak (opsiyonel)"></div>
+                    <div class="form-group"><label>Kategori</label><select id="kbCategory"><option value="Genel">Genel</option><option value="Akademik">Akademik</option><option value="Arastirma">Arastirma</option><option value="Ders Notu">Ders Notu</option><option value="Makale">Makale</option><option value="Tez">Tez</option><option value="Diger">Diger</option></select></div>
+                </div>
+                <button class="btn-primary" onclick="addKnowledge()"><span class="material-icons-outlined">add_circle</span> Ekle</button>
+            </div>
+            <div id="kbList" class="kb-list"></div>
+        </div>
+    </div>
+    <div id="page-universities" class="page">
+        <div class="page-header"><h1>Universiteler</h1><span class="result-count" id="uniCount"></span></div>
         <div class="filter-bar">
-            <input type="text" id="uniSearch" placeholder="Üniversite ara..." oninput="loadUniversities()">
-            <select id="uniRegion" onchange="loadUniversities()">
-                <option value="">Tüm Bölgeler</option>
-                <option value="Marmara">Marmara</option>
-                <option value="İç Anadolu">İç Anadolu</option>
-                <option value="Ege">Ege</option>
-                <option value="Akdeniz">Akdeniz</option>
-                <option value="Karadeniz">Karadeniz</option>
-                <option value="Doğu Anadolu">Doğu Anadolu</option>
-                <option value="Güneydoğu Anadolu">Güneydoğu Anadolu</option>
-                <option value="ABD">ABD</option>
-                <option value="İngiltere">İngiltere</option>
-                <option value="Almanya">Almanya</option>
-                <option value="Kanada">Kanada</option>
-                <option value="Fransa">Fransa</option>
-                <option value="İsviçre">İsviçre</option>
-                <option value="Japonya">Japonya</option>
-                <option value="Çin">Çin</option>
-                <option value="Avustralya">Avustralya</option>
-            </select>
-            <select id="uniType" onchange="loadUniversities()">
-                <option value="">Tüm Türler</option>
-                <option value="Devlet">Devlet</option>
-                <option value="Vakıf">Vakıf</option>
-                <option value="Özel">Özel</option>
-            </select>
+            <div class="filter-input-wrap"><span class="material-icons-outlined">search</span><input type="text" id="uniSearch" placeholder="Universite ara..." oninput="loadUniversities()"></div>
+            <select id="uniRegion" onchange="loadUniversities()"><option value="">Tum Bolgeler</option><option value="Marmara">Marmara</option><option value="Ic Anadolu">Ic Anadolu</option><option value="Ege">Ege</option><option value="Akdeniz">Akdeniz</option><option value="Karadeniz">Karadeniz</option><option value="ABD">ABD</option><option value="Ingiltere">Ingiltere</option><option value="Almanya">Almanya</option></select>
+            <select id="uniType" onchange="loadUniversities()"><option value="">Tum Turler</option><option value="Devlet">Devlet</option><option value="Vakif">Vakif</option><option value="Ozel">Ozel</option></select>
         </div>
-        <div id="uniCount" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;"></div>
-        <div id="uniList"></div>
+        <div id="uniList" class="card-grid"></div>
     </div>
-
-    <!-- Academics Page -->
-    <div id="page-academics" style="display:none;">
-        <h2 style="margin-bottom: 16px;">👨‍🏫 Akademisyenler</h2>
+    <div id="page-academics" class="page">
+        <div class="page-header"><h1>Akademisyenler</h1><span class="result-count" id="acadCount"></span></div>
         <div class="filter-bar">
-            <input type="text" id="acadSearch" placeholder="Akademisyen, bölüm veya araştırma alanı ara..." oninput="loadAcademics()">
-            <select id="acadTitle" onchange="loadAcademics()">
-                <option value="">Tüm Ünvanlar</option>
-                <option value="Prof.">Prof. Dr.</option>
-                <option value="Doç.">Doç. Dr.</option>
-                <option value="Dr. Öğr.">Dr. Öğr. Üyesi</option>
-            </select>
+            <div class="filter-input-wrap"><span class="material-icons-outlined">search</span><input type="text" id="acadSearch" placeholder="Akademisyen, bolum veya arastirma alani ara..." oninput="loadAcademics()"></div>
+            <select id="acadTitle" onchange="loadAcademics()"><option value="">Tum Unvanlar</option><option value="Prof.">Prof. Dr.</option><option value="Doc.">Doc. Dr.</option><option value="Dr. Ogr.">Dr. Ogr. Uyesi</option></select>
         </div>
-        <div id="acadCount" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;"></div>
-        <div id="acadList"></div>
+        <div id="acadList" class="card-grid"></div>
     </div>
-
-    <!-- Academic Detail Modal -->
-    <div class="modal-overlay" id="academicModal" style="display:none;">
-        <div class="modal" style="max-width:700px;">
-            <div id="academicDetail"></div>
-            <div class="modal-actions">
-                <button class="btn-cancel" onclick="document.getElementById('academicModal').style.display='none'">Kapat</button>
+    <div id="page-publications" class="page">
+        <div class="page-header"><h1>Yayinlar</h1><span class="result-count" id="pubCount"></span></div>
+        <div class="filter-bar">
+            <div class="filter-input-wrap"><span class="material-icons-outlined">search</span><input type="text" id="pubSearch" placeholder="Yayin, yazar veya dergi ara..." oninput="loadPublications()"></div>
+            <select id="pubYear" onchange="loadPublications()"><option value="">Tum Yillar</option><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option><option value="2022">2022</option><option value="2021">2021</option><option value="2020">2020</option></select>
+        </div>
+        <div id="pubList" class="card-grid"></div>
+    </div>
+    <div id="page-openalex" class="page">
+        <div class="page-header"><h1>OpenAlex Veri Cekme</h1></div>
+        <div class="openalex-panel">
+            <div class="panel-card sync-card">
+                <div class="panel-card-header"><span class="material-icons-outlined">sync</span><h3>Otomatik Senkronizasyon</h3></div>
+                <p class="panel-desc">OpenAlex'ten universite, akademisyen ve yayin verilerini otomatik olarak cekin.</p>
+                <div class="sync-options">
+                    <div class="form-group"><label>Ulke Kodu</label><input type="text" id="syncCountry" value="TR" placeholder="TR, US, DE..."></div>
+                    <div class="form-group"><label>Arama (opsiyonel)</label><input type="text" id="syncSearch" placeholder="Anahtar kelime"></div>
+                    <div class="form-group"><label>Sayfa Sayisi</label><input type="number" id="syncPages" value="3" min="1" max="10"></div>
+                </div>
+                <button class="btn-primary btn-large" id="syncBtn" onclick="startSync()"><span class="material-icons-outlined">cloud_download</span> Senkronizasyonu Baslat</button>
+                <div id="syncStatus" class="sync-status" style="display:none;"></div>
+            </div>
+            <div class="panel-card search-card">
+                <div class="panel-card-header"><span class="material-icons-outlined">travel_explore</span><h3>OpenAlex Canli Arama</h3></div>
+                <p class="panel-desc">OpenAlex veritabaninda canli arama yapin.</p>
+                <div class="openalex-search-bar">
+                    <select id="oaSearchType"><option value="works">Yayinlar</option><option value="authors">Yazarlar</option><option value="institutions">Kurumlar</option></select>
+                    <input type="text" id="oaSearchQuery" placeholder="Arama terimi girin..." onkeydown="if(event.key==='Enter')searchOpenAlex()">
+                    <button class="btn-primary" onclick="searchOpenAlex()"><span class="material-icons-outlined">search</span> Ara</button>
+                </div>
+                <div id="oaResults" class="oa-results"></div>
             </div>
         </div>
     </div>
-
-    <!-- University Detail Modal -->
-    <div class="modal-overlay" id="universityModal" style="display:none;">
-        <div class="modal" style="max-width:700px;">
-            <div id="universityDetail"></div>
-            <div class="modal-actions">
-                <button class="btn-cancel" onclick="document.getElementById('universityModal').style.display='none'">Kapat</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Publications Page -->
-    <div id="page-publications" style="display:none;">
-        <h2 style="margin-bottom: 16px;">📄 Yayınlar</h2>
-        <div class="filter-bar">
-            <input type="text" id="pubSearch" placeholder="Yayın, yazar veya dergi ara..." oninput="loadPublications()">
-            <select id="pubYear" onchange="loadPublications()">
-                <option value="">Tüm Yıllar</option>
-                <option value="2024">2024</option>
-                <option value="2023">2023</option>
-                <option value="2022">2022</option>
-                <option value="2021">2021</option>
-                <option value="2020">2020</option>
-                <option value="2019">2019</option>
-            </select>
-        </div>
-        <div id="pubCount" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;"></div>
-        <div id="pubList"></div>
-    </div>
-
-    <!-- Stats Page -->
-    <div id="page-stats" style="display:none;">
-        <h2 style="margin-bottom: 24px;">📊 İstatistikler</h2>
+    <div id="page-stats" class="page">
+        <div class="page-header"><h1>Istatistikler</h1></div>
         <div class="stats-grid" id="statsGrid"></div>
     </div>
-
 </main>
-
-<!-- ─── Upload Modal ────────────────────────────────────────────────── -->
 <div class="modal-overlay" id="uploadModal">
     <div class="modal">
-        <h2>📤 Dosya Yükle</h2>
+        <div class="modal-header"><h2>Dosya Yukle</h2><button class="icon-btn" onclick="closeUploadModal()"><span class="material-icons-outlined">close</span></button></div>
         <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
-            <div class="drop-icon">📄</div>
-            <p>Dosyayı sürükleyin veya tıklayın</p>
+            <span class="material-icons-outlined drop-icon">cloud_upload</span><p>Dosyayi surukleyin veya tiklayin</p><span class="drop-hint">Tum dosya turleri desteklenir</span>
         </div>
         <input type="file" id="fileInput" style="display:none" multiple onchange="handleFileSelect(this.files)">
-
-        <div id="selectedFiles" style="margin-bottom: 16px;"></div>
-
-        <div class="form-group">
-            <label>Açıklama</label>
-            <input type="text" id="uploadDesc" placeholder="Dosya açıklaması (opsiyonel)">
+        <div id="selectedFiles" class="selected-files"></div>
+        <div class="form-row">
+            <div class="form-group"><label>Aciklama</label><input type="text" id="uploadDesc" placeholder="Dosya aciklamasi (opsiyonel)"></div>
+            <div class="form-group"><label>Kategori</label><select id="uploadCategory"><option value="Genel">Genel</option><option value="Akademik">Akademik</option><option value="Ders Notu">Ders Notu</option><option value="Makale">Makale</option><option value="Tez">Tez</option><option value="Rapor">Rapor</option><option value="Sunum">Sunum</option><option value="Diger">Diger</option></select></div>
         </div>
-        <div class="form-group">
-            <label>Kategori</label>
-            <select id="uploadCategory">
-                <option value="Genel">Genel</option>
-                <option value="Akademik">Akademik</option>
-                <option value="Ders Notu">Ders Notu</option>
-                <option value="Makale">Makale</option>
-                <option value="Tez">Tez</option>
-                <option value="Rapor">Rapor</option>
-                <option value="Sunum">Sunum</option>
-                <option value="Diğer">Diğer</option>
-            </select>
-        </div>
-
-        <div class="modal-actions">
-            <button class="btn-cancel" onclick="closeUploadModal()">İptal</button>
-            <button class="btn-primary" id="uploadBtn" onclick="uploadFiles()">Yükle</button>
-        </div>
+        <div class="modal-actions"><button class="btn-cancel" onclick="closeUploadModal()">Iptal</button><button class="btn-primary" id="uploadBtn" onclick="uploadFiles()"><span class="material-icons-outlined">upload</span> Yukle</button></div>
     </div>
 </div>
-
-<!-- ─── Toast Container ─────────────────────────────────────────────── -->
+<div class="modal-overlay" id="universityModal" style="display:none;">
+    <div class="modal modal-detail">
+        <div class="modal-header"><h2>Universite Detayi</h2><button class="icon-btn" onclick="document.getElementById('universityModal').style.display='none'"><span class="material-icons-outlined">close</span></button></div>
+        <div id="universityDetail" class="modal-body"></div>
+    </div>
+</div>
+<div class="modal-overlay" id="academicModal" style="display:none;">
+    <div class="modal modal-detail">
+        <div class="modal-header"><h2>Akademisyen Detayi</h2><button class="icon-btn" onclick="document.getElementById('academicModal').style.display='none'"><span class="material-icons-outlined">close</span></button></div>
+        <div id="academicDetail" class="modal-body"></div>
+    </div>
+</div>
 <div class="toast-container" id="toastContainer"></div>
-
 <script src="/static/app.js"></script>
 </body>
 </html>

@@ -1,296 +1,211 @@
 const API = '';
-let currentPage = 'files';
-let selectedFiles = [];
-
-// ─── Page Navigation ─────────────────────────────────────────────────────────
+const pages = ['files','ai','knowledge','universities','academics','publications','openalex','stats'];
 
 function switchPage(page) {
-    currentPage = page;
-
-    document.querySelectorAll('.nav-item').forEach(item => {
-        item.classList.toggle('active', item.dataset.page === page);
-    });
-
-    const pages = ['files', 'ai', 'knowledge', 'stats', 'universities', 'academics', 'publications'];
     pages.forEach(p => {
         const el = document.getElementById('page-' + p);
-        if (!el) return;
-        if (p === 'ai' || p === 'knowledge') {
-            el.classList.toggle('active', p === page);
-        } else {
-            el.style.display = p === page ? 'block' : 'none';
-        }
+        if (el) { el.classList.remove('active-page'); el.style.display = 'none'; }
     });
-    // hide ai/knowledge when switching to other pages
-    if (page !== 'ai') document.getElementById('page-ai').classList.remove('active');
-    if (page !== 'knowledge') document.getElementById('page-knowledge').classList.remove('active');
+    document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+    const target = document.getElementById('page-' + page);
+    if (target) { target.style.display = 'block'; target.classList.add('active-page'); }
+    const navBtn = document.querySelector(`.nav-item[data-page="${page}"]`);
+    if (navBtn) navBtn.classList.add('active');
 
-    if (page === 'files') loadFiles();
-    if (page === 'knowledge') loadKnowledge();
-    if (page === 'stats') loadStats();
     if (page === 'universities') loadUniversities();
-    if (page === 'academics') loadAcademics();
-    if (page === 'publications') loadPublications();
+    else if (page === 'academics') loadAcademics();
+    else if (page === 'publications') loadPublications();
+    else if (page === 'stats') loadStats();
+    else if (page === 'knowledge') loadKnowledge();
 }
 
-// ─── File Operations ─────────────────────────────────────────────────────────
+function toggleSidebar() {
+    const sb = document.getElementById('sidebar');
+    const mc = document.getElementById('mainContent');
+    sb.classList.toggle('collapsed');
+    sb.classList.toggle('open');
+    mc.classList.toggle('expanded');
+}
 
-async function loadFiles(search) {
-    const params = new URLSearchParams();
-    if (search) params.set('search', search);
+// ─── Files ──────────────────────────────────────────────────────────────────
 
+async function loadFiles() {
     try {
-        const res = await fetch(`${API}/api/files?${params}`);
+        const res = await fetch(`${API}/api/files`);
         const files = await res.json();
         renderFiles(files);
         updateStorage(files);
     } catch (err) {
-        console.error('Dosyalar yüklenemedi:', err);
+        console.error('Dosyalar yuklenemedi:', err);
     }
 }
 
 function renderFiles(files) {
     const container = document.getElementById('filesList');
-
-    if (files.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <div class="empty-icon">📂</div>
-                <h3>Henüz dosya yok</h3>
-                <p>"Yeni" butonuna tıklayarak dosya yükleyebilirsiniz.</p>
-            </div>
-        `;
+    const empty = document.getElementById('filesEmpty');
+    if (!files.length) {
+        container.innerHTML = '';
+        if (empty) empty.style.display = 'flex';
         return;
     }
-
-    let html = `
-        <table class="file-list">
-            <thead>
-                <tr>
-                    <th>Ad</th>
-                    <th>Kategori</th>
-                    <th>Boyut</th>
-                    <th>Tarih</th>
-                    <th>İşlemler</th>
-                </tr>
-            </thead>
-            <tbody>
-    `;
-
-    for (const file of files) {
-        const icon = getFileIcon(file.file_type);
-        const size = formatFileSize(file.file_size);
-        const date = formatDate(file.created_at);
-
-        html += `
-            <tr>
-                <td>
-                    <div class="file-name-cell">
-                        <span class="file-icon-sm">${icon}</span>
-                        <span>${escapeHtml(file.original_filename)}</span>
-                    </div>
-                </td>
-                <td>${escapeHtml(file.category)}</td>
-                <td>${size}</td>
-                <td>${date}</td>
-                <td>
-                    <div class="file-actions-cell">
-                        <button onclick="downloadFile(${file.id}, '${escapeHtml(file.original_filename)}')" title="İndir">⬇️</button>
-                        <button onclick="askAIAboutFile(${file.id}, '${escapeHtml(file.original_filename)}')" title="AI'a Sor">🤖</button>
-                        <button class="delete-btn" onclick="deleteFile(${file.id})" title="Sil">🗑️</button>
-                    </div>
-                </td>
-            </tr>
-        `;
-    }
-
-    html += '</tbody></table>';
-    container.innerHTML = html;
+    if (empty) empty.style.display = 'none';
+    container.innerHTML = files.map(f => {
+        const iconClass = getFileIconClass(f.file_type || '');
+        const iconName = getFileIconName(f.file_type || '');
+        return `<div class="file-card">
+            <div class="file-card-actions">
+                <button class="file-action-btn" onclick="event.stopPropagation();downloadFile(${f.id})" title="Indir"><span class="material-icons-outlined">download</span></button>
+                <button class="file-action-btn" onclick="event.stopPropagation();askAIAboutFile(${f.id},'${escapeHtml(f.original_filename)}')" title="AI Sor"><span class="material-icons-outlined">smart_toy</span></button>
+                <button class="file-action-btn" onclick="event.stopPropagation();deleteFile(${f.id})" title="Sil"><span class="material-icons-outlined">delete</span></button>
+            </div>
+            <div class="file-card-icon ${iconClass}"><span class="material-icons-outlined">${iconName}</span></div>
+            <div class="file-card-name" title="${escapeHtml(f.original_filename)}">${escapeHtml(f.original_filename)}</div>
+            <div class="file-card-meta">${formatFileSize(f.file_size)} &middot; ${formatDate(f.created_at)}</div>
+        </div>`;
+    }).join('');
 }
 
-function getFileIcon(mimeType) {
-    if (!mimeType) return '📄';
-    if (mimeType.includes('pdf')) return '📕';
-    if (mimeType.includes('word') || mimeType.includes('document')) return '📝';
-    if (mimeType.includes('sheet') || mimeType.includes('excel')) return '📊';
-    if (mimeType.includes('presentation') || mimeType.includes('powerpoint')) return '📙';
-    if (mimeType.includes('image')) return '🖼️';
-    if (mimeType.includes('video')) return '🎬';
-    if (mimeType.includes('audio')) return '🎵';
-    if (mimeType.includes('zip') || mimeType.includes('rar') || mimeType.includes('archive')) return '📦';
-    if (mimeType.includes('text')) return '📄';
-    return '📄';
+function getFileIconClass(type) {
+    if (type.includes('pdf')) return 'pdf';
+    if (type.includes('word') || type.includes('document')) return 'doc';
+    if (type.includes('image')) return 'img';
+    return 'default';
+}
+
+function getFileIconName(type) {
+    if (type.includes('pdf')) return 'picture_as_pdf';
+    if (type.includes('word') || type.includes('document')) return 'description';
+    if (type.includes('image')) return 'image';
+    if (type.includes('spreadsheet') || type.includes('excel')) return 'table_chart';
+    if (type.includes('presentation') || type.includes('powerpoint')) return 'slideshow';
+    return 'insert_drive_file';
 }
 
 function formatFileSize(bytes) {
-    if (!bytes) return '-';
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-    return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+    if (!bytes) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let i = 0;
+    while (bytes >= 1024 && i < units.length - 1) { bytes /= 1024; i++; }
+    return bytes.toFixed(i ? 1 : 0) + ' ' + units[i];
 }
 
 function formatDate(dateStr) {
+    if (!dateStr) return '';
     const d = new Date(dateStr);
-    const months = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
-    return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+    return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function updateStorage(files) {
-    const totalSize = files.reduce((sum, f) => sum + (f.file_size || 0), 0);
-    const maxStorage = 1024 * 1024 * 1024; // 1 GB
-    const percent = Math.min((totalSize / maxStorage) * 100, 100);
-
-    document.getElementById('storageText').textContent =
-        `${formatFileSize(totalSize)} / 1 GB kullanılıyor`;
-    document.getElementById('storageBar').style.width = percent + '%';
+    const total = files.reduce((sum, f) => sum + (f.file_size || 0), 0);
+    const maxStorage = 1024 * 1024 * 1024;
+    const pct = Math.min((total / maxStorage) * 100, 100);
+    document.getElementById('storageText').textContent = `${formatFileSize(total)} / 1 GB kullanildi`;
+    document.getElementById('storageBar').style.width = pct + '%';
 }
 
-async function downloadFile(fileId, filename) {
-    try {
-        const res = await fetch(`${API}/api/files/${fileId}/download`);
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(url);
-        showToast('Dosya indiriliyor...');
-    } catch (err) {
-        showToast('İndirme hatası!');
-    }
+async function downloadFile(id) {
+    window.open(`${API}/api/files/${id}/download`, '_blank');
 }
 
-async function deleteFile(fileId) {
-    if (!confirm('Bu dosyayı silmek istediğinize emin misiniz?')) return;
-
+async function deleteFile(id) {
+    if (!confirm('Bu dosyayi silmek istediginize emin misiniz?')) return;
     try {
-        await fetch(`${API}/api/files/${fileId}`, { method: 'DELETE' });
+        await fetch(`${API}/api/files/${id}`, { method: 'DELETE' });
         showToast('Dosya silindi');
         loadFiles();
     } catch (err) {
-        showToast('Silme hatası!');
+        showToast('Dosya silinemedi');
     }
 }
 
-// ─── Upload ──────────────────────────────────────────────────────────────────
-
+// Upload Modal
 function openUploadModal() {
-    document.getElementById('uploadModal').classList.add('active');
-    selectedFiles = [];
+    document.getElementById('uploadModal').style.display = 'flex';
     document.getElementById('selectedFiles').innerHTML = '';
     document.getElementById('uploadDesc').value = '';
 }
 
 function closeUploadModal() {
-    document.getElementById('uploadModal').classList.remove('active');
-    selectedFiles = [];
+    document.getElementById('uploadModal').style.display = 'none';
 }
 
 function handleFileSelect(files) {
-    selectedFiles = Array.from(files);
     const container = document.getElementById('selectedFiles');
-    container.innerHTML = selectedFiles.map(f =>
-        `<div style="padding: 6px 0; font-size: 13px;">${getFileIcon(f.type)} ${f.name} (${formatFileSize(f.size)})</div>`
+    container.innerHTML = Array.from(files).map(f =>
+        `<div class="selected-file"><span class="material-icons-outlined" style="font-size:16px;color:var(--primary)">insert_drive_file</span>${escapeHtml(f.name)} (${formatFileSize(f.size)})</div>`
     ).join('');
 }
 
-// Drag & drop
-const dropZone = document.getElementById('dropZone');
-dropZone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    dropZone.classList.add('drag-over');
-});
-dropZone.addEventListener('dragleave', () => {
-    dropZone.classList.remove('drag-over');
-});
-dropZone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropZone.classList.remove('drag-over');
-    handleFileSelect(e.dataTransfer.files);
-});
-
 async function uploadFiles() {
-    if (selectedFiles.length === 0) {
-        showToast('Lütfen dosya seçin');
-        return;
-    }
-
+    const input = document.getElementById('fileInput');
+    if (!input.files.length) { showToast('Lutfen dosya secin'); return; }
     const btn = document.getElementById('uploadBtn');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span> Yükleniyor...';
-
-    const description = document.getElementById('uploadDesc').value;
-    const category = document.getElementById('uploadCategory').value;
-
-    for (const file of selectedFiles) {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('description', description);
-        formData.append('category', category);
-
-        try {
-            await fetch(`${API}/api/files`, {
-                method: 'POST',
-                body: formData,
-            });
-        } catch (err) {
-            showToast(`Hata: ${file.name} yüklenemedi`);
+    btn.innerHTML = '<span class="spinner"></span> Yukleniyor...';
+    try {
+        for (const file of input.files) {
+            const fd = new FormData();
+            fd.append('file', file);
+            fd.append('description', document.getElementById('uploadDesc').value);
+            fd.append('category', document.getElementById('uploadCategory').value);
+            await fetch(`${API}/api/files`, { method: 'POST', body: fd });
         }
+        showToast(`${input.files.length} dosya yuklendi`);
+        closeUploadModal();
+        loadFiles();
+    } catch (err) {
+        showToast('Yukleme hatasi');
     }
-
     btn.disabled = false;
-    btn.textContent = 'Yükle';
-    closeUploadModal();
-    showToast(`${selectedFiles.length} dosya yüklendi`);
-    loadFiles();
+    btn.innerHTML = '<span class="material-icons-outlined">upload</span> Yukle';
+    input.value = '';
 }
 
-// ─── AI Chat ─────────────────────────────────────────────────────────────────
+// Drag & Drop
+const dropZone = document.getElementById('dropZone');
+if (dropZone) {
+    ['dragenter','dragover'].forEach(ev => dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.style.borderColor = 'var(--primary)'; dropZone.style.background = 'var(--primary-light)'; }));
+    ['dragleave','drop'].forEach(ev => dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.style.borderColor = ''; dropZone.style.background = ''; }));
+    dropZone.addEventListener('drop', e => { document.getElementById('fileInput').files = e.dataTransfer.files; handleFileSelect(e.dataTransfer.files); });
+}
+
+// ─── AI Chat ────────────────────────────────────────────────────────────────
 
 async function sendAIQuery() {
     const input = document.getElementById('aiInput');
     const query = input.value.trim();
     if (!query) return;
-
     const messages = document.getElementById('aiMessages');
-    messages.innerHTML += `<div class="ai-message user">${escapeHtml(query)}</div>`;
+    messages.innerHTML += `<div class="ai-msg user"><span class="material-icons-outlined msg-avatar">person</span><div class="msg-content">${escapeHtml(query)}</div></div>`;
     input.value = '';
-
-    const sendBtn = document.getElementById('aiSendBtn');
-    sendBtn.disabled = true;
-
-    messages.innerHTML += `<div class="ai-message assistant" id="aiLoading"><span class="spinner"></span> Düşünüyorum...</div>`;
+    messages.innerHTML += `<div class="ai-msg assistant" id="aiLoading"><span class="material-icons-outlined msg-avatar">smart_toy</span><div class="msg-content"><span class="spinner"></span> Dusunuyor...</div></div>`;
     messages.scrollTop = messages.scrollHeight;
-
     try {
         const res = await fetch(`${API}/api/ai/query`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query }),
+            body: JSON.stringify({ query: query })
         });
         const data = await res.json();
-
-        document.getElementById('aiLoading').remove();
-        messages.innerHTML += `<div class="ai-message assistant">${escapeHtml(data.response_text || 'Yanıt alınamadı.')}</div>`;
+        const loading = document.getElementById('aiLoading');
+        if (loading) loading.remove();
+        messages.innerHTML += `<div class="ai-msg assistant"><span class="material-icons-outlined msg-avatar">smart_toy</span><div class="msg-content">${escapeHtml(data.response_text || data.detail || 'Yanit alinamadi')}</div></div>`;
     } catch (err) {
-        document.getElementById('aiLoading').remove();
-        messages.innerHTML += `<div class="ai-message assistant">Hata oluştu. Lütfen tekrar deneyin.</div>`;
+        const loading = document.getElementById('aiLoading');
+        if (loading) loading.remove();
+        messages.innerHTML += `<div class="ai-msg assistant"><span class="material-icons-outlined msg-avatar">smart_toy</span><div class="msg-content">Bir hata olustu. Lutfen tekrar deneyin.</div></div>`;
     }
-
-    sendBtn.disabled = false;
     messages.scrollTop = messages.scrollHeight;
 }
 
-function askAIAboutFile(fileId, filename) {
+function askAIAboutFile(fileId, fileName) {
     switchPage('ai');
     const input = document.getElementById('aiInput');
-    input.value = `"${filename}" dosyası hakkında bilgi ver.`;
+    input.value = `"${fileName}" dosyasi hakkinda bilgi ver`;
     input.focus();
 }
 
-// ─── Knowledge Base ──────────────────────────────────────────────────────────
+// ─── Knowledge Base ─────────────────────────────────────────────────────────
 
 async function loadKnowledge() {
     try {
@@ -298,35 +213,26 @@ async function loadKnowledge() {
         const entries = await res.json();
         renderKnowledge(entries);
     } catch (err) {
-        console.error('Bilgi tabanı yüklenemedi:', err);
+        console.error('Bilgi tabani yuklenemedi:', err);
     }
 }
 
 function renderKnowledge(entries) {
     const container = document.getElementById('kbList');
-
-    if (entries.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <div class="empty-icon">📚</div>
-                <h3>Bilgi tabanı boş</h3>
-                <p>Yukarıdaki formu kullanarak bilgi ekleyebilirsiniz.</p>
-            </div>
-        `;
+    if (!entries.length) {
+        container.innerHTML = '<div class="empty-state" style="padding:40px"><span class="material-icons-outlined empty-icon">menu_book</span><h3>Henuz bilgi kaydedilmemis</h3></div>';
         return;
     }
-
     container.innerHTML = entries.map(entry => `
         <div class="kb-card">
-            <h4>${escapeHtml(entry.title)}</h4>
-            <p>${escapeHtml(entry.content.substring(0, 300))}${entry.content.length > 300 ? '...' : ''}</p>
-            <div class="kb-meta">
-                <span>📂 ${escapeHtml(entry.category)}</span>
-                ${entry.source ? `<span>📎 ${escapeHtml(entry.source)}</span>` : ''}
-                <span>📅 ${formatDate(entry.created_at)}</span>
-            </div>
-            <div class="kb-actions">
-                <button class="btn-cancel" onclick="deleteKnowledge(${entry.id})">🗑️ Sil</button>
+            <div class="kb-card-title">${escapeHtml(entry.title)}</div>
+            <div class="kb-card-content">${escapeHtml(entry.content)}</div>
+            <div class="kb-card-footer">
+                <div class="kb-card-meta">
+                    <span class="tag">${escapeHtml(entry.category || 'Genel')}</span>
+                    ${entry.source ? `<span style="margin-left:8px">${escapeHtml(entry.source)}</span>` : ''}
+                </div>
+                <button class="btn-danger" onclick="deleteKnowledge(${entry.id})">Sil</button>
             </div>
         </div>
     `).join('');
@@ -335,112 +241,39 @@ function renderKnowledge(entries) {
 async function addKnowledge() {
     const title = document.getElementById('kbTitle').value.trim();
     const content = document.getElementById('kbContent').value.trim();
-    const source = document.getElementById('kbSource').value.trim();
-    const category = document.getElementById('kbCategory').value;
-
-    if (!title || !content) {
-        showToast('Başlık ve içerik gereklidir');
-        return;
-    }
-
+    if (!title || !content) { showToast('Baslik ve icerik zorunludur'); return; }
     try {
         await fetch(`${API}/api/knowledge`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title, content, source: source || null, category }),
+            body: JSON.stringify({
+                title, content,
+                source: document.getElementById('kbSource').value,
+                category: document.getElementById('kbCategory').value
+            })
         });
-
         document.getElementById('kbTitle').value = '';
         document.getElementById('kbContent').value = '';
         document.getElementById('kbSource').value = '';
-
         showToast('Bilgi eklendi');
         loadKnowledge();
     } catch (err) {
-        showToast('Ekleme hatası!');
+        showToast('Bilgi eklenemedi');
     }
 }
 
 async function deleteKnowledge(id) {
-    if (!confirm('Bu kaydı silmek istediğinize emin misiniz?')) return;
-
+    if (!confirm('Bu bilgiyi silmek istediginize emin misiniz?')) return;
     try {
         await fetch(`${API}/api/knowledge/${id}`, { method: 'DELETE' });
         showToast('Bilgi silindi');
         loadKnowledge();
     } catch (err) {
-        showToast('Silme hatası!');
+        showToast('Silinemedi');
     }
 }
 
-// ─── Stats ───────────────────────────────────────────────────────────────────
-
-async function loadStats() {
-    try {
-        const res = await fetch(`${API}/api/stats`);
-        const stats = await res.json();
-
-        document.getElementById('statsGrid').innerHTML = `
-            <div class="stat-card">
-                <div class="stat-number">${stats.total_files}</div>
-                <div class="stat-label">📁 Toplam Dosya</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number">${stats.total_knowledge}</div>
-                <div class="stat-label">📚 Bilgi Kaydı</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number">${stats.total_queries}</div>
-                <div class="stat-label">🤖 AI Sorgusu</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number">${stats.total_universities || 0}</div>
-                <div class="stat-label">🏛️ Üniversite</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number">${stats.total_academics || 0}</div>
-                <div class="stat-label">👨‍🏫 Akademisyen</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number">${stats.total_publications || 0}</div>
-                <div class="stat-label">📄 Yayın</div>
-            </div>
-        `;
-    } catch (err) {
-        console.error('İstatistikler yüklenemedi:', err);
-    }
-}
-
-// ─── Search ──────────────────────────────────────────────────────────────────
-
-let searchTimeout;
-function handleSearch(value) {
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(() => {
-        if (currentPage === 'files') {
-            loadFiles(value);
-        }
-    }, 300);
-}
-
-// ─── Utilities ───────────────────────────────────────────────────────────────
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-function showToast(message) {
-    const container = document.getElementById('toastContainer');
-    const toast = document.createElement('div');
-    toast.className = 'toast';
-    toast.textContent = message;
-    container.appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
-}
-
-// ─── Universities ────────────────────────────────────────────────────────────
+// ─── Universities ───────────────────────────────────────────────────────────
 
 let uniSearchTimeout;
 async function loadUniversities() {
@@ -456,25 +289,24 @@ async function loadUniversities() {
         try {
             const res = await fetch(`${API}/api/universities?${params}`);
             const unis = await res.json();
-            document.getElementById('uniCount').textContent = `${unis.length} üniversite bulundu`;
+            document.getElementById('uniCount').textContent = `${unis.length} universite`;
             document.getElementById('uniList').innerHTML = unis.map(u => `
                 <div class="card-item" onclick="showUniversityDetail(${u.id})">
                     <div class="card-header">
-                        <span class="card-icon">🏛️</span>
+                        <div class="card-icon"><span class="material-icons-outlined">account_balance</span></div>
                         <div class="card-title">${escapeHtml(u.name)}</div>
                     </div>
                     <div class="card-meta">
-                        <span>📍 ${escapeHtml(u.city || '')}</span>
-                        <span>🌍 ${escapeHtml(u.region || '')}</span>
-                        <span>🏢 ${escapeHtml(u.type || '')}</span>
-                        ${u.established ? `<span>📅 ${u.established}</span>` : ''}
-                        <span>👨‍🏫 ${u.academic_count} akademisyen</span>
+                        <span>${escapeHtml(u.city || '')}</span>
+                        <span>${escapeHtml(u.region || '')}</span>
+                        <span>${escapeHtml(u.type || '')}</span>
+                        ${u.established ? `<span>${u.established}</span>` : ''}
+                        ${u.academic_count ? `<span>${u.academic_count} akademisyen</span>` : ''}
                     </div>
-                    ${u.website ? `<div class="card-link"><a href="${u.website}" target="_blank" onclick="event.stopPropagation()">🔗 Web Sitesi</a></div>` : ''}
                 </div>
             `).join('');
         } catch (err) {
-            console.error('Üniversiteler yüklenemedi:', err);
+            console.error('Universiteler yuklenemedi:', err);
         }
     }, 250);
 }
@@ -484,33 +316,28 @@ async function showUniversityDetail(id) {
         const res = await fetch(`${API}/api/universities/${id}`);
         const uni = await res.json();
         document.getElementById('universityDetail').innerHTML = `
-            <h2>🏛️ ${escapeHtml(uni.name)}</h2>
+            <h3 style="margin-bottom:16px">${escapeHtml(uni.name)}</h3>
             <div class="detail-grid">
-                <div class="detail-item"><strong>📍 Şehir:</strong> ${escapeHtml(uni.city || '-')}</div>
-                <div class="detail-item"><strong>🌍 Bölge:</strong> ${escapeHtml(uni.region || '-')}</div>
-                <div class="detail-item"><strong>🏢 Tür:</strong> ${escapeHtml(uni.type || '-')}</div>
-                ${uni.established ? `<div class="detail-item"><strong>📅 Kuruluş:</strong> ${uni.established}</div>` : ''}
-                ${uni.website ? `<div class="detail-item"><strong>🔗 Web:</strong> <a href="${uni.website}" target="_blank">${uni.website}</a></div>` : ''}
+                <div class="detail-item"><strong>Sehir</strong>${escapeHtml(uni.city || '-')}</div>
+                <div class="detail-item"><strong>Bolge</strong>${escapeHtml(uni.region || '-')}</div>
+                <div class="detail-item"><strong>Tur</strong>${escapeHtml(uni.type || '-')}</div>
+                ${uni.established ? `<div class="detail-item"><strong>Kurulus</strong>${uni.established}</div>` : ''}
+                ${uni.website ? `<div class="detail-item"><strong>Web</strong><a href="${uni.website}" target="_blank">${uni.website}</a></div>` : ''}
             </div>
-            ${uni.academics.length > 0 ? `
-                <h3 style="margin-top:20px;">👨‍🏫 Akademisyenler (${uni.academics.length})</h3>
+            ${uni.academics && uni.academics.length > 0 ? `
+                <h4 style="margin-top:20px;margin-bottom:8px">Akademisyenler (${uni.academics.length})</h4>
                 <div class="detail-list">
-                    ${uni.academics.map(a => `
-                        <div class="detail-list-item" onclick="showAcademicDetail(${a.id}); document.getElementById('universityModal').style.display='none';">
-                            <strong>${escapeHtml(a.title || '')} ${escapeHtml(a.name)}</strong>
-                            <span style="color:var(--text-secondary);font-size:13px;">${escapeHtml(a.department || '')}</span>
-                        </div>
-                    `).join('')}
+                    ${uni.academics.map(a => `<div class="detail-list-item" onclick="showAcademicDetail(${a.id});document.getElementById('universityModal').style.display='none'"><strong>${escapeHtml(a.title || '')} ${escapeHtml(a.name)}</strong><span style="color:var(--text-secondary);font-size:13px">${escapeHtml(a.department || '')}</span></div>`).join('')}
                 </div>
-            ` : '<p style="color:var(--text-secondary);margin-top:16px;">Henüz bu üniversitede kayıtlı akademisyen yok.</p>'}
+            ` : '<p style="color:var(--text-secondary);margin-top:16px">Bu universitede kayitli akademisyen yok.</p>'}
         `;
         document.getElementById('universityModal').style.display = 'flex';
     } catch (err) {
-        console.error('Üniversite detayı yüklenemedi:', err);
+        console.error('Universite detayi yuklenemedi:', err);
     }
 }
 
-// ─── Academics ───────────────────────────────────────────────────────────────
+// ─── Academics ──────────────────────────────────────────────────────────────
 
 let acadSearchTimeout;
 async function loadAcademics() {
@@ -524,26 +351,25 @@ async function loadAcademics() {
         try {
             const res = await fetch(`${API}/api/academics?${params}`);
             const acads = await res.json();
-            document.getElementById('acadCount').textContent = `${acads.length} akademisyen bulundu`;
+            document.getElementById('acadCount').textContent = `${acads.length} akademisyen`;
             document.getElementById('acadList').innerHTML = acads.map(a => `
                 <div class="card-item" onclick="showAcademicDetail(${a.id})">
                     <div class="card-header">
-                        <span class="card-icon">👨‍🏫</span>
+                        <div class="card-icon"><span class="material-icons-outlined">person</span></div>
                         <div class="card-title">${escapeHtml(a.title || '')} ${escapeHtml(a.name)}</div>
                     </div>
                     <div class="card-meta">
-                        <span>🏛️ ${escapeHtml(a.university || 'Bilinmeyen')}</span>
-                        <span>🏫 ${escapeHtml(a.department || '')}</span>
+                        <span>${escapeHtml(a.university || '')}</span>
+                        <span>${escapeHtml(a.department || '')}</span>
+                        ${a.source ? `<span class="tag">${escapeHtml(a.source)}</span>` : ''}
                     </div>
                     <div class="card-tags">
-                        ${(a.research_areas || '').split(',').map(area => 
-                            `<span class="tag">${escapeHtml(area.trim())}</span>`
-                        ).join('')}
+                        ${(a.research_areas || '').split(',').filter(x=>x.trim()).slice(0,4).map(area => `<span class="tag">${escapeHtml(area.trim())}</span>`).join('')}
                     </div>
                 </div>
             `).join('');
         } catch (err) {
-            console.error('Akademisyenler yüklenemedi:', err);
+            console.error('Akademisyenler yuklenemedi:', err);
         }
     }, 250);
 }
@@ -553,40 +379,30 @@ async function showAcademicDetail(id) {
         const res = await fetch(`${API}/api/academics/${id}`);
         const a = await res.json();
         document.getElementById('academicDetail').innerHTML = `
-            <h2>👨‍🏫 ${escapeHtml(a.title || '')} ${escapeHtml(a.name)}</h2>
+            <h3 style="margin-bottom:16px">${escapeHtml(a.title || '')} ${escapeHtml(a.name)}</h3>
             <div class="detail-grid">
-                <div class="detail-item"><strong>🏛️ Üniversite:</strong> ${escapeHtml(a.university || '-')}</div>
-                <div class="detail-item"><strong>🏫 Fakülte:</strong> ${escapeHtml(a.faculty || '-')}</div>
-                <div class="detail-item"><strong>💼 Bölüm:</strong> ${escapeHtml(a.department || '-')}</div>
-                ${a.email ? `<div class="detail-item"><strong>📧 E-posta:</strong> ${escapeHtml(a.email)}</div>` : ''}
+                <div class="detail-item"><strong>Universite</strong>${escapeHtml(a.university || '-')}</div>
+                <div class="detail-item"><strong>Fakulte</strong>${escapeHtml(a.faculty || '-')}</div>
+                <div class="detail-item"><strong>Bolum</strong>${escapeHtml(a.department || '-')}</div>
+                ${a.email ? `<div class="detail-item"><strong>E-posta</strong>${escapeHtml(a.email)}</div>` : ''}
             </div>
-            <div style="margin-top:16px;">
-                <strong>🔬 Araştırma Alanları:</strong>
-                <div class="card-tags" style="margin-top:8px;">
-                    ${(a.research_areas || '').split(',').map(area => 
-                        `<span class="tag">${escapeHtml(area.trim())}</span>`
-                    ).join('')}
-                </div>
+            <div style="margin-top:16px"><strong style="font-size:13px;color:var(--text-secondary)">Arastirma Alanlari</strong>
+                <div class="card-tags" style="margin-top:8px">${(a.research_areas || '').split(',').filter(x=>x.trim()).map(area => `<span class="tag">${escapeHtml(area.trim())}</span>`).join('')}</div>
             </div>
             ${a.publications && a.publications.length > 0 ? `
-                <h3 style="margin-top:20px;">📄 Yayınlar (${a.publications.length})</h3>
+                <h4 style="margin-top:20px;margin-bottom:8px">Yayinlar (${a.publications.length})</h4>
                 <div class="detail-list">
-                    ${a.publications.map(p => `
-                        <div class="detail-list-item">
-                            <strong>${escapeHtml(p.title)}</strong>
-                            <span style="color:var(--text-secondary);font-size:13px;">${escapeHtml(p.journal || '')} ${p.year ? '(' + p.year + ')' : ''}</span>
-                        </div>
-                    `).join('')}
+                    ${a.publications.map(p => `<div class="detail-list-item"><strong>${escapeHtml(p.title)}</strong><span style="color:var(--text-secondary);font-size:13px">${escapeHtml(p.journal || '')} ${p.year ? '(' + p.year + ')' : ''}</span></div>`).join('')}
                 </div>
-            ` : '<p style="color:var(--text-secondary);margin-top:16px;">Kayıtlı yayın bulunmamaktadır.</p>'}
+            ` : '<p style="color:var(--text-secondary);margin-top:16px">Kayitli yayin yok.</p>'}
         `;
         document.getElementById('academicModal').style.display = 'flex';
     } catch (err) {
-        console.error('Akademisyen detayı yüklenemedi:', err);
+        console.error('Akademisyen detayi yuklenemedi:', err);
     }
 }
 
-// ─── Publications ────────────────────────────────────────────────────────────
+// ─── Publications ───────────────────────────────────────────────────────────
 
 let pubSearchTimeout;
 async function loadPublications() {
@@ -600,30 +416,177 @@ async function loadPublications() {
         try {
             const res = await fetch(`${API}/api/publications?${params}`);
             const pubs = await res.json();
-            document.getElementById('pubCount').textContent = `${pubs.length} yayın bulundu`;
+            document.getElementById('pubCount').textContent = `${pubs.length} yayin`;
             document.getElementById('pubList').innerHTML = pubs.map(p => `
                 <div class="card-item">
                     <div class="card-header">
-                        <span class="card-icon">📄</span>
+                        <div class="card-icon"><span class="material-icons-outlined">article</span></div>
                         <div class="card-title">${escapeHtml(p.title)}</div>
                     </div>
                     <div class="card-meta">
-                        <span>👤 ${escapeHtml(p.authors || 'Bilinmeyen')}</span>
-                        <span>📖 ${escapeHtml(p.journal || '')}</span>
-                        ${p.year ? `<span>📅 ${p.year}</span>` : ''}
-                        ${p.citations ? `<span>📈 ${p.citations} atıf</span>` : ''}
-                        <span>🏷️ ${escapeHtml(p.type || 'Makale')}</span>
+                        <span>${escapeHtml(p.authors || '')}</span>
+                        <span>${escapeHtml(p.journal || '')}</span>
+                        ${p.year ? `<span>${p.year}</span>` : ''}
+                        ${p.citations ? `<span>${p.citations} atif</span>` : ''}
+                        <span>${escapeHtml(p.type || 'Makale')}</span>
                     </div>
-                    ${p.academic ? `<div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">🏛️ Akademisyen: ${escapeHtml(p.academic)}</div>` : ''}
+                    ${p.academic ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">Akademisyen: ${escapeHtml(p.academic)}</div>` : ''}
                 </div>
             `).join('');
         } catch (err) {
-            console.error('Yayınlar yüklenemedi:', err);
+            console.error('Yayinlar yuklenemedi:', err);
         }
     }, 250);
 }
 
-// ─── Init ────────────────────────────────────────────────────────────────────
+// ─── Stats ──────────────────────────────────────────────────────────────────
+
+async function loadStats() {
+    try {
+        const res = await fetch(`${API}/api/stats`);
+        const stats = await res.json();
+        document.getElementById('statsGrid').innerHTML = `
+            <div class="stat-card"><span class="material-icons-outlined">folder</span><div class="stat-number">${stats.total_files || 0}</div><div class="stat-label">Dosya</div></div>
+            <div class="stat-card"><span class="material-icons-outlined">menu_book</span><div class="stat-number">${stats.total_knowledge || 0}</div><div class="stat-label">Bilgi Kaydi</div></div>
+            <div class="stat-card"><span class="material-icons-outlined">smart_toy</span><div class="stat-number">${stats.total_queries || 0}</div><div class="stat-label">AI Sorgu</div></div>
+            <div class="stat-card"><span class="material-icons-outlined">account_balance</span><div class="stat-number">${stats.total_universities || 0}</div><div class="stat-label">Universite</div></div>
+            <div class="stat-card"><span class="material-icons-outlined">person</span><div class="stat-number">${stats.total_academics || 0}</div><div class="stat-label">Akademisyen</div></div>
+            <div class="stat-card"><span class="material-icons-outlined">article</span><div class="stat-number">${stats.total_publications || 0}</div><div class="stat-label">Yayin</div></div>
+            <div class="stat-card"><span class="material-icons-outlined">people</span><div class="stat-number">${stats.total_users || 0}</div><div class="stat-label">Kullanici</div></div>
+        `;
+    } catch (err) {
+        console.error('Istatistikler yuklenemedi:', err);
+    }
+}
+
+// ─── OpenAlex ───────────────────────────────────────────────────────────────
+
+async function startSync() {
+    const btn = document.getElementById('syncBtn');
+    const statusEl = document.getElementById('syncStatus');
+    const country = document.getElementById('syncCountry').value || 'TR';
+    const search = document.getElementById('syncSearch').value;
+    const pages = document.getElementById('syncPages').value || 3;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Senkronize ediliyor...';
+    statusEl.style.display = 'block';
+    statusEl.className = 'sync-status syncing';
+    statusEl.innerHTML = 'Senkronizasyon baslatildi... Bu islem biraz zaman alabilir.';
+
+    try {
+        const params = new URLSearchParams({ country_code: country, max_pages: pages });
+        if (search) params.set('search', search);
+        await fetch(`${API}/api/openalex/sync?${params}`, { method: 'POST' });
+        pollSyncStatus(statusEl, btn);
+    } catch (err) {
+        statusEl.className = 'sync-status error';
+        statusEl.innerHTML = 'Senkronizasyon baslatilamadi: ' + err.message;
+        btn.disabled = false;
+        btn.innerHTML = '<span class="material-icons-outlined">cloud_download</span> Senkronizasyonu Baslat';
+    }
+}
+
+async function pollSyncStatus(statusEl, btn) {
+    const check = async () => {
+        try {
+            const res = await fetch(`${API}/api/openalex/sync/status`);
+            const data = await res.json();
+            if (data.running) {
+                statusEl.innerHTML = 'Senkronizasyon devam ediyor...';
+                setTimeout(check, 2000);
+            } else if (data.error) {
+                statusEl.className = 'sync-status error';
+                statusEl.innerHTML = 'Hata: ' + data.error;
+                btn.disabled = false;
+                btn.innerHTML = '<span class="material-icons-outlined">cloud_download</span> Senkronizasyonu Baslat';
+            } else if (data.last_result) {
+                const r = data.last_result;
+                statusEl.className = 'sync-status done';
+                statusEl.innerHTML = `Senkronizasyon tamamlandi!<br>
+                    Kurumlar: ${r.institutions?.total_saved || 0} kaydedildi (${r.institutions?.total_fetched || 0} cekildi)<br>
+                    Yazarlar: ${r.authors?.total_saved || 0} kaydedildi (${r.authors?.total_fetched || 0} cekildi)<br>
+                    Yayinlar: ${r.works?.total_saved || 0} kaydedildi (${r.works?.total_fetched || 0} cekildi)`;
+                btn.disabled = false;
+                btn.innerHTML = '<span class="material-icons-outlined">cloud_download</span> Senkronizasyonu Baslat';
+                showToast('OpenAlex senkronizasyonu tamamlandi!');
+            } else {
+                statusEl.className = 'sync-status done';
+                statusEl.innerHTML = 'Senkronizasyon tamamlandi.';
+                btn.disabled = false;
+                btn.innerHTML = '<span class="material-icons-outlined">cloud_download</span> Senkronizasyonu Baslat';
+            }
+        } catch (err) {
+            setTimeout(check, 3000);
+        }
+    };
+    setTimeout(check, 2000);
+}
+
+async function searchOpenAlex() {
+    const type = document.getElementById('oaSearchType').value;
+    const query = document.getElementById('oaSearchQuery').value.trim();
+    if (!query) { showToast('Arama terimi girin'); return; }
+    const resultsEl = document.getElementById('oaResults');
+    resultsEl.innerHTML = '<div style="text-align:center;padding:20px"><span class="spinner"></span></div>';
+    try {
+        const res = await fetch(`${API}/api/openalex/search/${type}?query=${encodeURIComponent(query)}`);
+        const data = await res.json();
+        if (!data.results || !data.results.length) {
+            resultsEl.innerHTML = '<p style="color:var(--text-secondary);padding:16px">Sonuc bulunamadi.</p>';
+            return;
+        }
+        resultsEl.innerHTML = `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">${data.total.toLocaleString()} sonuc bulundu</div>` +
+            data.results.map(item => {
+                if (type === 'works') {
+                    return `<div class="oa-result-item"><div class="oa-result-title">${escapeHtml(item.title || '')}</div><div class="oa-result-meta">${escapeHtml(item.authors || '')} | ${escapeHtml(item.journal || '')} ${item.year ? '(' + item.year + ')' : ''} | ${item.citations || 0} atif ${item.open_access ? '| Acik Erisim' : ''}</div></div>`;
+                } else if (type === 'authors') {
+                    return `<div class="oa-result-item"><div class="oa-result-title">${escapeHtml(item.name || '')}</div><div class="oa-result-meta">${escapeHtml(item.institution || '')} | ${item.works_count || 0} eser | ${item.cited_by_count || 0} atif</div></div>`;
+                } else {
+                    return `<div class="oa-result-item"><div class="oa-result-title">${escapeHtml(item.name || '')}</div><div class="oa-result-meta">${escapeHtml(item.city || '')} ${escapeHtml(item.country || '')} | ${item.works_count || 0} eser</div></div>`;
+                }
+            }).join('');
+    } catch (err) {
+        resultsEl.innerHTML = '<p style="color:var(--danger);padding:16px">Arama hatasi: ' + err.message + '</p>';
+    }
+}
+
+// ─── Search ─────────────────────────────────────────────────────────────────
+
+let searchTimeout;
+function handleSearch(query) {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+        if (!query.trim()) return;
+        // Search across current page or default to files
+        const activePage = document.querySelector('.page.active-page');
+        if (activePage) {
+            const id = activePage.id;
+            if (id === 'page-files') loadFiles();
+            else if (id === 'page-universities') loadUniversities();
+            else if (id === 'page-academics') loadAcademics();
+            else if (id === 'page-publications') loadPublications();
+        }
+    }, 300);
+}
+
+// ─── Utilities ──────────────────────────────────────────────────────────────
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showToast(msg) {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = msg;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+}
+
+// ─── Init ───────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
     loadFiles();
