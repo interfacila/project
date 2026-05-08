@@ -57,6 +57,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Track background sync status
 _sync_status: dict = {"running": False, "last_result": None, "error": None}
+_sync_lock = threading.Lock()
 
 
 @app.on_event("startup")
@@ -410,30 +411,30 @@ def openalex_sync(
     search: str = "",
     country_code: str = "TR",
     max_pages: int = 3,
-    db: Session = Depends(get_db),
 ):
     """Trigger a full OpenAlex sync (institutions + authors + works)."""
-    global _sync_status
-    if _sync_status["running"]:
-        return {"detail": "Senkronizasyon zaten devam ediyor", "status": "running"}
-
-    _sync_status["running"] = True
-    _sync_status["error"] = None
+    with _sync_lock:
+        if _sync_status["running"]:
+            return {"detail": "Senkronizasyon zaten devam ediyor", "status": "running"}
+        _sync_status["running"] = True
+        _sync_status["error"] = None
 
     def _run_sync():
-        global _sync_status
         sync_db = SessionLocal()
         try:
             result = sync_openalex_data(
                 sync_db, search=search, country_code=country_code,
                 max_pages=max_pages,
             )
-            _sync_status["last_result"] = result
+            with _sync_lock:
+                _sync_status["last_result"] = result
         except Exception as e:
-            _sync_status["error"] = str(e)
+            with _sync_lock:
+                _sync_status["error"] = str(e)
         finally:
             sync_db.close()
-            _sync_status["running"] = False
+            with _sync_lock:
+                _sync_status["running"] = False
 
     thread = threading.Thread(target=_run_sync, daemon=True)
     thread.start()

@@ -12,7 +12,8 @@ function switchPage(page) {
     const navBtn = document.querySelector(`.nav-item[data-page="${page}"]`);
     if (navBtn) navBtn.classList.add('active');
 
-    if (page === 'universities') loadUniversities();
+    if (page === 'files') loadFiles();
+    else if (page === 'universities') loadUniversities();
     else if (page === 'academics') loadAcademics();
     else if (page === 'publications') loadPublications();
     else if (page === 'stats') loadStats();
@@ -31,7 +32,10 @@ function toggleSidebar() {
 
 async function loadFiles() {
     try {
-        const res = await fetch(`${API}/api/files`);
+        const searchVal = document.getElementById('searchInput')?.value || '';
+        const params = new URLSearchParams();
+        if (searchVal.trim()) params.set('search', searchVal.trim());
+        const res = await fetch(`${API}/api/files?${params}`);
         const files = await res.json();
         renderFiles(files);
         updateStorage(files);
@@ -574,7 +578,7 @@ function handleSearch(query) {
 
 function escapeHtml(str) {
     if (!str) return '';
-    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 function showToast(msg) {
