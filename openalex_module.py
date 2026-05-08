@@ -6,7 +6,7 @@ API docs: https://docs.openalex.org/
 """
 
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 import requests
 from sqlalchemy.orm import Session
@@ -18,8 +18,8 @@ HEADERS = {
     "User-Agent": "AkademikAI/1.0 (mailto:admin@akademikai.com)",
     "Accept": "application/json",
 }
-PER_PAGE = 50
-REQUEST_DELAY = 0.15
+PER_PAGE = 200  # OpenAlex max per_page
+REQUEST_DELAY = 0.12
 
 
 def _get(endpoint: str, params: dict | None = None) -> dict:
@@ -279,197 +279,280 @@ def fetch_works(
     }
 
 
+# ── Cursor-based pagination helper ───────────────────────────────────────────
+
+def _fetch_all_cursor(
+    endpoint: str,
+    params: dict,
+    progress_cb: Optional[Callable] = None,
+) -> list[dict]:
+    """Fetch all results from an OpenAlex endpoint using cursor pagination."""
+    params = {**params, "per_page": PER_PAGE, "cursor": "*"}
+    all_results: list[dict] = []
+    page_num = 0
+
+    while True:
+        data = _get(endpoint, params)
+        results = data.get("results", [])
+        if not results:
+            break
+        all_results.extend(results)
+        page_num += 1
+        total = data.get("meta", {}).get("count", 0)
+        if progress_cb:
+            progress_cb(len(all_results), total)
+        next_cursor = data.get("meta", {}).get("next_cursor")
+        if not next_cursor:
+            break
+        params["cursor"] = next_cursor
+
+    return all_results
+
+
 # ── Bulk Sync ────────────────────────────────────────────────────────────────
 
 def sync_openalex_data(
     db: Session,
     search: str = "",
     country_code: str = "TR",
-    max_pages: int = 3,
+    max_pages: int = 0,
+    progress_cb: Optional[Callable] = None,
 ) -> dict:
     """
     Full sync: fetch institutions, then authors, then works from OpenAlex.
-    Defaults to Turkish institutions but can be customized.
+    Uses cursor pagination to fetch ALL results when max_pages=0.
+    Defaults to Turkish institutions.
     """
     results = {
-        "institutions": {"total_saved": 0, "total_fetched": 0},
-        "authors": {"total_saved": 0, "total_fetched": 0},
-        "works": {"total_saved": 0, "total_fetched": 0},
+        "institutions": {"total_saved": 0, "total_fetched": 0, "api_total": 0},
+        "authors": {"total_saved": 0, "total_fetched": 0, "api_total": 0},
+        "works": {"total_saved": 0, "total_fetched": 0, "api_total": 0},
     }
 
-    # 1. Fetch institutions
-    for page in range(1, max_pages + 1):
-        try:
-            r = fetch_institutions(
-                db, search=search, country_code=country_code, page=page
+    def _update_progress(phase: str, fetched: int, total: int):
+        if progress_cb:
+            progress_cb(phase, fetched, total, results)
+
+    # ── 1. Fetch ALL institutions ────────────────────────────────────────
+    _update_progress("institutions", 0, 0)
+    inst_params: dict = {}
+    if search:
+        inst_params["search"] = search
+    if country_code:
+        inst_params["filter"] = f"country_code:{country_code}"
+
+    try:
+        inst_items = _fetch_all_cursor(
+            "/institutions", inst_params,
+            lambda f, t: _update_progress("institutions", f, t),
+        )
+        results["institutions"]["total_fetched"] = len(inst_items)
+
+        saved = 0
+        for item in inst_items:
+            name = item.get("display_name", "")
+            if not name:
+                continue
+            existing = db.query(University).filter(University.name == name).first()
+            if existing:
+                if not existing.website and item.get("homepage_url"):
+                    existing.website = item["homepage_url"]
+                continue
+
+            geo = item.get("geo", {}) or {}
+            city = geo.get("city", "")
+            country = geo.get("country", "")
+
+            uni_type = "Devlet"
+            if item.get("type") == "company":
+                uni_type = "Ozel"
+            elif item.get("type") == "nonprofit":
+                uni_type = "Vakif"
+
+            uni = University(
+                name=name,
+                city=city,
+                region=country if country else "",
+                university_type=uni_type,
+                website=item.get("homepage_url", ""),
             )
-            results["institutions"]["total_saved"] += r["saved"]
-            results["institutions"]["total_fetched"] += r["fetched"]
-            if r["fetched"] < PER_PAGE:
-                break
-        except Exception as e:
-            print(f"Institution fetch error page {page}: {e}")
-            break
+            db.add(uni)
+            saved += 1
 
-    # 2. Fetch authors from those institutions
-    for page in range(1, max_pages + 1):
-        try:
-            filter_str = ""
-            if country_code:
-                filter_str = f"last_known_institutions.country_code:{country_code}"
+        db.commit()
+        results["institutions"]["total_saved"] = saved
+    except Exception as e:
+        print(f"Institution sync error: {e}")
+        db.rollback()
 
-            params: dict = {"page": page, "per_page": PER_PAGE}
-            if search:
-                params["search"] = search
-            if filter_str:
-                params["filter"] = filter_str
+    # ── 2. Fetch ALL authors ─────────────────────────────────────────────
+    _update_progress("authors", 0, 0)
+    author_params: dict = {}
+    if search:
+        author_params["search"] = search
+    if country_code:
+        author_params["filter"] = f"last_known_institutions.country_code:{country_code}"
 
-            data = _get("/authors", params)
-            saved = 0
+    try:
+        author_items = _fetch_all_cursor(
+            "/authors", author_params,
+            lambda f, t: _update_progress("authors", f, t),
+        )
+        results["authors"]["total_fetched"] = len(author_items)
+        results["authors"]["api_total"] = len(author_items)
 
-            for item in data.get("results", []):
-                name = item.get("display_name", "")
-                if not name:
-                    continue
+        saved = 0
+        batch = []
+        for item in author_items:
+            name = item.get("display_name", "")
+            if not name:
+                continue
 
-                existing = db.query(Academic).filter(
-                    Academic.full_name == name
+            existing = db.query(Academic).filter(
+                Academic.full_name == name
+            ).first()
+            if existing:
+                continue
+
+            last_inst = item.get("last_known_institutions") or []
+            uni_id = None
+            if last_inst:
+                inst_name = last_inst[0].get("display_name", "")
+                if inst_name:
+                    uni = db.query(University).filter(
+                        University.name == inst_name
+                    ).first()
+                    if uni:
+                        uni_id = uni.id
+
+            topics = item.get("topics", []) or []
+            research_areas = ", ".join(
+                t.get("display_name", "")
+                for t in topics[:5]
+                if t.get("display_name")
+            )
+
+            academic = Academic(
+                full_name=name,
+                title="",
+                department="",
+                faculty="",
+                university_id=uni_id,
+                research_areas=research_areas,
+                source="OpenAlex",
+                profile_url=item.get("id", ""),
+            )
+            db.add(academic)
+            saved += 1
+
+            if saved % 500 == 0:
+                db.commit()
+
+        db.commit()
+        results["authors"]["total_saved"] = saved
+    except Exception as e:
+        print(f"Author sync error: {e}")
+        db.rollback()
+
+    # ── 3. Fetch works ───────────────────────────────────────────────────
+    _update_progress("works", 0, 0)
+    works_params: dict = {}
+    if search:
+        works_params["search"] = search
+    if country_code:
+        works_params["filter"] = f"institutions.country_code:{country_code}"
+
+    try:
+        works_items = _fetch_all_cursor(
+            "/works", works_params,
+            lambda f, t: _update_progress("works", f, t),
+        )
+        results["works"]["total_fetched"] = len(works_items)
+        results["works"]["api_total"] = len(works_items)
+
+        saved = 0
+        for item in works_items:
+            title = item.get("title", "")
+            if not title:
+                continue
+
+            doi = item.get("doi", "") or ""
+            if doi:
+                existing = db.query(Publication).filter(
+                    Publication.doi == doi
                 ).first()
                 if existing:
                     continue
 
-                last_inst = item.get("last_known_institutions") or []
-                uni_id = None
-                if last_inst:
-                    inst_name = last_inst[0].get("display_name", "")
-                    if inst_name:
-                        uni = db.query(University).filter(
-                            University.name == inst_name
-                        ).first()
-                        if uni:
-                            uni_id = uni.id
+            existing_t = db.query(Publication).filter(
+                Publication.title == title
+            ).first()
+            if existing_t:
+                continue
 
-                topics = item.get("topics", []) or []
-                research_areas = ", ".join(
-                    t.get("display_name", "")
-                    for t in topics[:5]
-                    if t.get("display_name")
-                )
-
-                academic = Academic(
-                    full_name=name,
-                    title="",
-                    department="",
-                    faculty="",
-                    university_id=uni_id,
-                    research_areas=research_areas,
-                    source="OpenAlex",
-                    profile_url=item.get("id", ""),
-                )
-                db.add(academic)
-                saved += 1
-
-            db.commit()
-            results["authors"]["total_saved"] += saved
-            results["authors"]["total_fetched"] += len(
-                data.get("results", [])
+            authorships = item.get("authorships", []) or []
+            authors_str = ", ".join(
+                a.get("author", {}).get("display_name", "")
+                for a in authorships[:10]
+                if a.get("author", {}).get("display_name")
             )
-            if len(data.get("results", [])) < PER_PAGE:
-                break
-        except Exception as e:
-            print(f"Author fetch error page {page}: {e}")
-            break
 
-    # 3. Fetch works
-    for page in range(1, max_pages + 1):
-        try:
-            filter_str = ""
-            if country_code:
-                filter_str = (
-                    f"institutions.country_code:{country_code}"
+            academic_id = None
+            if authorships:
+                first_name = (
+                    authorships[0]
+                    .get("author", {})
+                    .get("display_name", "")
                 )
-
-            params_w: dict = {"page": page, "per_page": PER_PAGE}
-            if search:
-                params_w["search"] = search
-            if filter_str:
-                params_w["filter"] = filter_str
-
-            data = _get("/works", params_w)
-            saved = 0
-
-            for item in data.get("results", []):
-                title = item.get("title", "")
-                if not title:
-                    continue
-
-                doi = item.get("doi", "") or ""
-                if doi:
-                    existing = db.query(Publication).filter(
-                        Publication.doi == doi
+                if first_name:
+                    acad = db.query(Academic).filter(
+                        Academic.full_name == first_name
                     ).first()
-                    if existing:
-                        continue
+                    if acad:
+                        academic_id = acad.id
 
-                existing_t = db.query(Publication).filter(
-                    Publication.title == title
-                ).first()
-                if existing_t:
-                    continue
+            year = item.get("publication_year")
+            journal = ""
+            loc = item.get("primary_location", {}) or {}
+            if loc.get("source"):
+                journal = loc["source"].get("display_name", "")
 
-                authorships = item.get("authorships", []) or []
-                authors_str = ", ".join(
-                    a.get("author", {}).get("display_name", "")
-                    for a in authorships[:10]
-                    if a.get("author", {}).get("display_name")
-                )
+            pub_type_map = {
+                "journal-article": "Makale",
+                "book-chapter": "Kitap Bolumu",
+                "proceedings-article": "Bildiri",
+                "book": "Kitap",
+                "dissertation": "Tez",
+                "dataset": "Veri Seti",
+                "preprint": "On Baski",
+            }
+            raw_type = item.get("type", "")
+            pub_type = pub_type_map.get(raw_type, "Makale")
 
-                academic_id = None
-                if authorships:
-                    first_name = (
-                        authorships[0]
-                        .get("author", {})
-                        .get("display_name", "")
-                    )
-                    if first_name:
-                        acad = db.query(Academic).filter(
-                            Academic.full_name == first_name
-                        ).first()
-                        if acad:
-                            academic_id = acad.id
-
-                year = item.get("publication_year")
-                journal = ""
-                loc = item.get("primary_location", {}) or {}
-                if loc.get("source"):
-                    journal = loc["source"].get("display_name", "")
-
-                pub = Publication(
-                    title=title,
-                    authors=authors_str,
-                    journal=journal,
-                    year=year,
-                    doi=doi,
-                    abstract="",
-                    citation_count=item.get("cited_by_count", 0),
-                    publication_type="Makale",
-                    academic_id=academic_id,
-                    source="OpenAlex",
-                    url=item.get("id", ""),
-                )
-                db.add(pub)
-                saved += 1
-
-            db.commit()
-            results["works"]["total_saved"] += saved
-            results["works"]["total_fetched"] += len(
-                data.get("results", [])
+            pub = Publication(
+                title=title,
+                authors=authors_str,
+                journal=journal,
+                year=year,
+                doi=doi,
+                abstract="",
+                citation_count=item.get("cited_by_count", 0),
+                publication_type=pub_type,
+                academic_id=academic_id,
+                source="OpenAlex",
+                url=item.get("id", ""),
             )
-            if len(data.get("results", [])) < PER_PAGE:
-                break
-        except Exception as e:
-            print(f"Works fetch error page {page}: {e}")
-            break
+            db.add(pub)
+            saved += 1
+
+            if saved % 500 == 0:
+                db.commit()
+
+        db.commit()
+        results["works"]["total_saved"] = saved
+    except Exception as e:
+        print(f"Works sync error: {e}")
+        db.rollback()
 
     return results
 

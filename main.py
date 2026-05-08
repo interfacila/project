@@ -56,13 +56,72 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Track background sync status
-_sync_status: dict = {"running": False, "last_result": None, "error": None}
+_sync_status: dict = {
+    "running": False,
+    "last_result": None,
+    "error": None,
+    "phase": None,
+    "phase_fetched": 0,
+    "phase_total": 0,
+    "progress": {},
+}
 _sync_lock = threading.Lock()
+
+
+def _auto_sync_if_empty():
+    """Auto-sync Turkish data from OpenAlex if the database is empty."""
+    db = SessionLocal()
+    try:
+        uni_count = db.query(University).count()
+        acad_count = db.query(Academic).count()
+        if uni_count > 0 and acad_count > 0:
+            print(f"[AutoSync] DB already has {uni_count} universities, {acad_count} academics. Skipping.")
+            return
+
+        print("[AutoSync] Empty database detected. Starting full Turkish data sync...")
+        with _sync_lock:
+            if _sync_status["running"]:
+                return
+            _sync_status["running"] = True
+            _sync_status["error"] = None
+            _sync_status["phase"] = "starting"
+
+        def _progress_cb(phase: str, fetched: int, total: int, results: dict):
+            with _sync_lock:
+                _sync_status["phase"] = phase
+                _sync_status["phase_fetched"] = fetched
+                _sync_status["phase_total"] = total
+                _sync_status["progress"] = {
+                    k: v.copy() for k, v in results.items()
+                }
+
+        sync_db = SessionLocal()
+        try:
+            result = sync_openalex_data(
+                sync_db, country_code="TR", progress_cb=_progress_cb,
+            )
+            with _sync_lock:
+                _sync_status["last_result"] = result
+                _sync_status["phase"] = "completed"
+            print(f"[AutoSync] Completed: {result}")
+        except Exception as e:
+            with _sync_lock:
+                _sync_status["error"] = str(e)
+                _sync_status["phase"] = "error"
+            print(f"[AutoSync] Error: {e}")
+        finally:
+            sync_db.close()
+            with _sync_lock:
+                _sync_status["running"] = False
+    finally:
+        db.close()
 
 
 @app.on_event("startup")
 def startup():
     init_db()
+    thread = threading.Thread(target=_auto_sync_if_empty, daemon=True)
+    thread.start()
 
 
 # ─── Frontend ────────────────────────────────────────────────────────────────
@@ -410,7 +469,6 @@ def list_publications(
 def openalex_sync(
     search: str = "",
     country_code: str = "TR",
-    max_pages: int = 3,
 ):
     """Trigger a full OpenAlex sync (institutions + authors + works)."""
     with _sync_lock:
@@ -418,19 +476,31 @@ def openalex_sync(
             return {"detail": "Senkronizasyon zaten devam ediyor", "status": "running"}
         _sync_status["running"] = True
         _sync_status["error"] = None
+        _sync_status["phase"] = "starting"
+
+    def _progress_cb(phase: str, fetched: int, total: int, results: dict):
+        with _sync_lock:
+            _sync_status["phase"] = phase
+            _sync_status["phase_fetched"] = fetched
+            _sync_status["phase_total"] = total
+            _sync_status["progress"] = {
+                k: v.copy() for k, v in results.items()
+            }
 
     def _run_sync():
         sync_db = SessionLocal()
         try:
             result = sync_openalex_data(
                 sync_db, search=search, country_code=country_code,
-                max_pages=max_pages,
+                progress_cb=_progress_cb,
             )
             with _sync_lock:
                 _sync_status["last_result"] = result
+                _sync_status["phase"] = "completed"
         except Exception as e:
             with _sync_lock:
                 _sync_status["error"] = str(e)
+                _sync_status["phase"] = "error"
         finally:
             sync_db.close()
             with _sync_lock:

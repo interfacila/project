@@ -470,16 +470,15 @@ async function startSync() {
     const statusEl = document.getElementById('syncStatus');
     const country = document.getElementById('syncCountry').value || 'TR';
     const search = document.getElementById('syncSearch').value;
-    const pages = document.getElementById('syncPages').value || 3;
 
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span> Senkronize ediliyor...';
     statusEl.style.display = 'block';
     statusEl.className = 'sync-status syncing';
-    statusEl.innerHTML = 'Senkronizasyon baslatildi... Bu islem biraz zaman alabilir.';
+    statusEl.innerHTML = 'Senkronizasyon baslatildi... Tum veriler cekilecek, bu islem uzun surebilir.';
 
     try {
-        const params = new URLSearchParams({ country_code: country, max_pages: pages });
+        const params = new URLSearchParams({ country_code: country });
         if (search) params.set('search', search);
         await fetch(`${API}/api/openalex/sync?${params}`, { method: 'POST' });
         pollSyncStatus(statusEl, btn);
@@ -491,34 +490,56 @@ async function startSync() {
     }
 }
 
+function formatNumber(n) {
+    return (n || 0).toLocaleString('tr-TR');
+}
+
+function buildProgressHTML(data) {
+    const phaseLabels = { starting: 'Baslatiliyor...', institutions: 'Universiteler', authors: 'Akademisyenler', works: 'Yayinlar', completed: 'Tamamlandi', error: 'Hata' };
+    const phase = data.phase || 'starting';
+    const fetched = data.phase_fetched || 0;
+    const total = data.phase_total || 0;
+    const pct = total > 0 ? Math.min(Math.round((fetched / total) * 100), 100) : 0;
+    const prog = data.progress || {};
+
+    let html = `<div style="margin-bottom:8px"><strong>${phaseLabels[phase] || phase}</strong>`;
+    if (total > 0) html += ` - ${formatNumber(fetched)} / ${formatNumber(total)} (${pct}%)`;
+    html += '</div>';
+    if (total > 0) html += `<div style="background:#e0e0e0;border-radius:4px;height:6px;margin-bottom:8px"><div style="background:var(--primary);height:100%;border-radius:4px;width:${pct}%;transition:width 0.3s"></div></div>`;
+
+    if (prog.institutions) html += `<div style="font-size:12px">Universiteler: ${formatNumber(prog.institutions.total_saved)} kaydedildi / ${formatNumber(prog.institutions.total_fetched)} cekildi</div>`;
+    if (prog.authors) html += `<div style="font-size:12px">Akademisyenler: ${formatNumber(prog.authors.total_saved)} kaydedildi / ${formatNumber(prog.authors.total_fetched)} cekildi</div>`;
+    if (prog.works) html += `<div style="font-size:12px">Yayinlar: ${formatNumber(prog.works.total_saved)} kaydedildi / ${formatNumber(prog.works.total_fetched)} cekildi</div>`;
+    return html;
+}
+
 async function pollSyncStatus(statusEl, btn) {
     const check = async () => {
         try {
             const res = await fetch(`${API}/api/openalex/sync/status`);
             const data = await res.json();
             if (data.running) {
-                statusEl.innerHTML = 'Senkronizasyon devam ediyor...';
+                statusEl.innerHTML = buildProgressHTML(data);
                 setTimeout(check, 2000);
             } else if (data.error) {
                 statusEl.className = 'sync-status error';
                 statusEl.innerHTML = 'Hata: ' + data.error;
-                btn.disabled = false;
-                btn.innerHTML = '<span class="material-icons-outlined">cloud_download</span> Senkronizasyonu Baslat';
+                if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-icons-outlined">cloud_download</span> Senkronizasyonu Baslat'; }
             } else if (data.last_result) {
                 const r = data.last_result;
                 statusEl.className = 'sync-status done';
                 statusEl.innerHTML = `Senkronizasyon tamamlandi!<br>
-                    Kurumlar: ${r.institutions?.total_saved || 0} kaydedildi (${r.institutions?.total_fetched || 0} cekildi)<br>
-                    Yazarlar: ${r.authors?.total_saved || 0} kaydedildi (${r.authors?.total_fetched || 0} cekildi)<br>
-                    Yayinlar: ${r.works?.total_saved || 0} kaydedildi (${r.works?.total_fetched || 0} cekildi)`;
-                btn.disabled = false;
-                btn.innerHTML = '<span class="material-icons-outlined">cloud_download</span> Senkronizasyonu Baslat';
+                    Universiteler: ${formatNumber(r.institutions?.total_saved)} kaydedildi (${formatNumber(r.institutions?.total_fetched)} cekildi)<br>
+                    Akademisyenler: ${formatNumber(r.authors?.total_saved)} kaydedildi (${formatNumber(r.authors?.total_fetched)} cekildi)<br>
+                    Yayinlar: ${formatNumber(r.works?.total_saved)} kaydedildi (${formatNumber(r.works?.total_fetched)} cekildi)`;
+                if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-icons-outlined">cloud_download</span> Senkronizasyonu Baslat'; }
                 showToast('OpenAlex senkronizasyonu tamamlandi!');
+                hideSyncBanner();
             } else {
                 statusEl.className = 'sync-status done';
                 statusEl.innerHTML = 'Senkronizasyon tamamlandi.';
-                btn.disabled = false;
-                btn.innerHTML = '<span class="material-icons-outlined">cloud_download</span> Senkronizasyonu Baslat';
+                if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-icons-outlined">cloud_download</span> Senkronizasyonu Baslat'; }
+                hideSyncBanner();
             }
         } catch (err) {
             setTimeout(check, 3000);
@@ -590,8 +611,64 @@ function showToast(msg) {
     setTimeout(() => toast.remove(), 3000);
 }
 
+// ─── Auto-Sync Banner ───────────────────────────────────────────────────────
+
+function showSyncBanner() {
+    let banner = document.getElementById('syncBanner');
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'syncBanner';
+        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,#1a73e8,#4285f4);color:#fff;padding:12px 24px;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,.2);display:flex;align-items:center;gap:12px';
+        banner.innerHTML = '<span class="spinner" style="border-color:rgba(255,255,255,.3);border-top-color:#fff"></span><div id="syncBannerContent">Turkiye akademik verileri yukleniyor...</div><button onclick="hideSyncBanner()" style="background:none;border:none;color:#fff;cursor:pointer;font-size:18px;margin-left:auto">&times;</button>';
+        document.body.prepend(banner);
+    }
+    banner.style.display = 'flex';
+}
+
+function hideSyncBanner() {
+    const banner = document.getElementById('syncBanner');
+    if (banner) banner.style.display = 'none';
+}
+
+function updateSyncBanner(data) {
+    const content = document.getElementById('syncBannerContent');
+    if (!content) return;
+    const phaseLabels = { starting: 'Baslatiliyor...', institutions: 'Universiteler yukleniyor', authors: 'Akademisyenler yukleniyor', works: 'Yayinlar yukleniyor', completed: 'Tamamlandi!' };
+    const phase = data.phase || 'starting';
+    const fetched = data.phase_fetched || 0;
+    const total = data.phase_total || 0;
+    let text = phaseLabels[phase] || phase;
+    if (total > 0) text += ` (${formatNumber(fetched)} / ${formatNumber(total)})`;
+    content.textContent = text;
+}
+
+async function checkAutoSync() {
+    try {
+        const res = await fetch(`${API}/api/openalex/sync/status`);
+        const data = await res.json();
+        if (data.running) {
+            showSyncBanner();
+            const poll = async () => {
+                try {
+                    const r2 = await fetch(`${API}/api/openalex/sync/status`);
+                    const d2 = await r2.json();
+                    if (d2.running) {
+                        updateSyncBanner(d2);
+                        setTimeout(poll, 2000);
+                    } else {
+                        hideSyncBanner();
+                        if (d2.last_result) showToast('Veriler yuklendi! Sayfayi yenileyebilirsiniz.');
+                    }
+                } catch (e) { setTimeout(poll, 3000); }
+            };
+            setTimeout(poll, 2000);
+        }
+    } catch (e) { /* ignore */ }
+}
+
 // ─── Init ───────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
     loadFiles();
+    checkAutoSync();
 });
