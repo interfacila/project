@@ -98,7 +98,7 @@
     <div id="page-universities" class="page">
         <div class="page-header"><h1>Universiteler</h1><span class="result-count" id="uniCount"></span></div>
         <div class="filter-bar">
-            <div class="filter-input-wrap"><span class="material-icons-outlined">search</span><input type="text" id="uniSearch" placeholder="Universite ara..." oninput="loadUniversities()"></div>
+            <div class="filter-input-wrap"><span class="material-icons-outlined">search</span><input type="text" id="uniSearch" placeholder="Universite ara..." oninput="loadUniversitiesDebounced()"></div>
             <select id="uniRegion" onchange="loadUniversities()"><option value="">Tum Bolgeler</option><option value="Marmara">Marmara</option><option value="Ic Anadolu">Ic Anadolu</option><option value="Ege">Ege</option><option value="Akdeniz">Akdeniz</option><option value="Karadeniz">Karadeniz</option><option value="ABD">ABD</option><option value="Ingiltere">Ingiltere</option><option value="Almanya">Almanya</option></select>
             <select id="uniType" onchange="loadUniversities()"><option value="">Tum Turler</option><option value="Devlet">Devlet</option><option value="Vakif">Vakif</option><option value="Ozel">Ozel</option></select>
         </div>
@@ -107,7 +107,7 @@
     <div id="page-academics" class="page">
         <div class="page-header"><h1>Akademisyenler</h1><span class="result-count" id="acadCount"></span></div>
         <div class="filter-bar">
-            <div class="filter-input-wrap"><span class="material-icons-outlined">search</span><input type="text" id="acadSearch" placeholder="Akademisyen, bolum veya arastirma alani ara..." oninput="loadAcademics()"></div>
+            <div class="filter-input-wrap"><span class="material-icons-outlined">search</span><input type="text" id="acadSearch" placeholder="Akademisyen, bolum veya arastirma alani ara..." oninput="loadAcademicsDebounced()"></div>
             <select id="acadTitle" onchange="loadAcademics()"><option value="">Tum Unvanlar</option><option value="Prof.">Prof. Dr.</option><option value="Doc.">Doc. Dr.</option><option value="Dr. Ogr.">Dr. Ogr. Uyesi</option></select>
         </div>
         <div id="acadList" class="card-grid"></div>
@@ -115,7 +115,7 @@
     <div id="page-publications" class="page">
         <div class="page-header"><h1>Yayinlar</h1><span class="result-count" id="pubCount"></span></div>
         <div class="filter-bar">
-            <div class="filter-input-wrap"><span class="material-icons-outlined">search</span><input type="text" id="pubSearch" placeholder="Yayin, yazar veya dergi ara..." oninput="loadPublications()"></div>
+            <div class="filter-input-wrap"><span class="material-icons-outlined">search</span><input type="text" id="pubSearch" placeholder="Yayin, yazar veya dergi ara..." oninput="loadPublicationsDebounced()"></div>
             <select id="pubYear" onchange="loadPublications()"><option value="">Tum Yillar</option><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option><option value="2022">2022</option><option value="2021">2021</option><option value="2020">2020</option></select>
         </div>
         <div id="pubList" class="card-grid"></div>

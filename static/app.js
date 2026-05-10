@@ -1,6 +1,43 @@
 const API = '';
 const pages = ['files','ai','knowledge','universities','academics','publications','openalex','stats'];
 
+// ─── Performance helpers ────────────────────────────────────────────────────
+// Default page size — kept aligned with the backend default to keep responses
+// small and rendering fast even with large datasets.
+const PAGE_SIZE = 50;
+
+// Generic debouncer. Returns a function that delays invocation of `fn` until
+// `delay` ms have elapsed since the last call.
+function debounce(fn, delay = 300) {
+    let t;
+    return function debounced(...args) {
+        clearTimeout(t);
+        t = setTimeout(() => fn.apply(this, args), delay);
+    };
+}
+
+// Per-loader AbortControllers so a fast-typing user cancels the previous
+// in-flight fetch before issuing a new one. This prevents stale (and slow)
+// responses from overwriting fresh ones and from competing for main-thread
+// time during JSON parsing + render.
+const _inFlight = {};
+function getAbortSignal(key) {
+    if (_inFlight[key]) _inFlight[key].abort();
+    const ctrl = new AbortController();
+    _inFlight[key] = ctrl;
+    return ctrl.signal;
+}
+
+// Pagination state for each list view. `total` is the server-reported total
+// matching the current filters; `offset` is the next page's offset.
+const pageState = {
+    universities: { offset: 0, total: 0 },
+    academics:    { offset: 0, total: 0 },
+    publications: { offset: 0, total: 0 },
+    files:        { offset: 0, total: 0 },
+    knowledge:    { offset: 0, total: 0 },
+};
+
 function switchPage(page) {
     pages.forEach(p => {
         const el = document.getElementById('page-' + p);
@@ -30,30 +67,34 @@ function toggleSidebar() {
 
 // ─── Files ──────────────────────────────────────────────────────────────────
 
-async function loadFiles() {
+async function loadFiles({ append = false } = {}) {
     try {
         const searchVal = document.getElementById('searchInput')?.value || '';
         const params = new URLSearchParams();
         if (searchVal.trim()) params.set('search', searchVal.trim());
-        const res = await fetch(`${API}/api/files?${params}`);
-        const files = await res.json();
-        renderFiles(files);
-        updateStorage(files);
+        if (!append) pageState.files.offset = 0;
+        params.set('limit', PAGE_SIZE);
+        params.set('offset', pageState.files.offset);
+        const signal = getAbortSignal('files');
+        const res = await fetch(`${API}/api/files?${params}`, { signal });
+        const data = await res.json();
+        const items = Array.isArray(data) ? data : (data.items || []);
+        const total = Array.isArray(data) ? items.length : (data.total || 0);
+        pageState.files.total = total;
+        pageState.files.offset += items.length;
+        renderFiles(items, { append });
+        updateStorage(items);
+        renderLoadMore('files', 'filesList', () => loadFiles({ append: true }));
     } catch (err) {
+        if (err.name === 'AbortError') return;
         console.error('Dosyalar yuklenemedi:', err);
     }
 }
 
-function renderFiles(files) {
+function renderFiles(files, { append = false } = {}) {
     const container = document.getElementById('filesList');
     const empty = document.getElementById('filesEmpty');
-    if (!files.length) {
-        container.innerHTML = '';
-        if (empty) empty.style.display = 'flex';
-        return;
-    }
-    if (empty) empty.style.display = 'none';
-    container.innerHTML = files.map(f => {
+    const html = files.map(f => {
         const iconClass = getFileIconClass(f.file_type || '');
         const iconName = getFileIconName(f.file_type || '');
         return `<div class="file-card">
@@ -67,6 +108,16 @@ function renderFiles(files) {
             <div class="file-card-meta">${formatFileSize(f.file_size)} &middot; ${formatDate(f.created_at)}</div>
         </div>`;
     }).join('');
+    if (append) {
+        container.insertAdjacentHTML('beforeend', html);
+    } else {
+        container.innerHTML = html;
+    }
+    if (!container.children.length) {
+        if (empty) empty.style.display = 'flex';
+    } else if (empty) {
+        empty.style.display = 'none';
+    }
 }
 
 function getFileIconClass(type) {
@@ -211,23 +262,30 @@ function askAIAboutFile(fileId, fileName) {
 
 // ─── Knowledge Base ─────────────────────────────────────────────────────────
 
-async function loadKnowledge() {
+async function loadKnowledge({ append = false } = {}) {
     try {
-        const res = await fetch(`${API}/api/knowledge`);
-        const entries = await res.json();
-        renderKnowledge(entries);
+        if (!append) pageState.knowledge.offset = 0;
+        const params = new URLSearchParams();
+        params.set('limit', PAGE_SIZE);
+        params.set('offset', pageState.knowledge.offset);
+        const signal = getAbortSignal('knowledge');
+        const res = await fetch(`${API}/api/knowledge?${params}`, { signal });
+        const data = await res.json();
+        const items = Array.isArray(data) ? data : (data.items || []);
+        const total = Array.isArray(data) ? items.length : (data.total || 0);
+        pageState.knowledge.total = total;
+        pageState.knowledge.offset += items.length;
+        renderKnowledge(items, { append });
+        renderLoadMore('knowledge', 'kbList', () => loadKnowledge({ append: true }));
     } catch (err) {
+        if (err.name === 'AbortError') return;
         console.error('Bilgi tabani yuklenemedi:', err);
     }
 }
 
-function renderKnowledge(entries) {
+function renderKnowledge(entries, { append = false } = {}) {
     const container = document.getElementById('kbList');
-    if (!entries.length) {
-        container.innerHTML = '<div class="empty-state" style="padding:40px"><span class="material-icons-outlined empty-icon">menu_book</span><h3>Henuz bilgi kaydedilmemis</h3></div>';
-        return;
-    }
-    container.innerHTML = entries.map(entry => `
+    const html = entries.map(entry => `
         <div class="kb-card">
             <div class="kb-card-title">${escapeHtml(entry.title)}</div>
             <div class="kb-card-content">${escapeHtml(entry.content)}</div>
@@ -240,6 +298,13 @@ function renderKnowledge(entries) {
             </div>
         </div>
     `).join('');
+    if (append) {
+        container.insertAdjacentHTML('beforeend', html);
+    } else if (!entries.length) {
+        container.innerHTML = '<div class="empty-state" style="padding:40px"><span class="material-icons-outlined empty-icon">menu_book</span><h3>Henuz bilgi kaydedilmemis</h3></div>';
+    } else {
+        container.innerHTML = html;
+    }
 }
 
 async function addKnowledge() {
@@ -279,41 +344,61 @@ async function deleteKnowledge(id) {
 
 // ─── Universities ───────────────────────────────────────────────────────────
 
-let uniSearchTimeout;
-async function loadUniversities() {
-    clearTimeout(uniSearchTimeout);
-    uniSearchTimeout = setTimeout(async () => {
-        const params = new URLSearchParams();
-        const search = document.getElementById('uniSearch')?.value;
-        const region = document.getElementById('uniRegion')?.value;
-        const type = document.getElementById('uniType')?.value;
-        if (search) params.set('search', search);
-        if (region) params.set('region', region);
-        if (type) params.set('university_type', type);
-        try {
-            const res = await fetch(`${API}/api/universities?${params}`);
-            const unis = await res.json();
-            document.getElementById('uniCount').textContent = `${unis.length} universite`;
-            document.getElementById('uniList').innerHTML = unis.map(u => `
-                <div class="card-item" onclick="showUniversityDetail(${u.id})">
-                    <div class="card-header">
-                        <div class="card-icon"><span class="material-icons-outlined">account_balance</span></div>
-                        <div class="card-title">${escapeHtml(u.name)}</div>
-                    </div>
-                    <div class="card-meta">
-                        <span>${escapeHtml(u.city || '')}</span>
-                        <span>${escapeHtml(u.region || '')}</span>
-                        <span>${escapeHtml(u.type || '')}</span>
-                        ${u.established ? `<span>${u.established}</span>` : ''}
-                        ${u.academic_count ? `<span>${u.academic_count} akademisyen</span>` : ''}
-                    </div>
-                </div>
-            `).join('');
-        } catch (err) {
-            console.error('Universiteler yuklenemedi:', err);
-        }
-    }, 250);
+async function loadUniversities({ append = false } = {}) {
+    const params = new URLSearchParams();
+    const search = document.getElementById('uniSearch')?.value;
+    const region = document.getElementById('uniRegion')?.value;
+    const type = document.getElementById('uniType')?.value;
+    if (search) params.set('search', search);
+    if (region) params.set('region', region);
+    if (type) params.set('university_type', type);
+    if (!append) pageState.universities.offset = 0;
+    params.set('limit', PAGE_SIZE);
+    params.set('offset', pageState.universities.offset);
+    try {
+        const signal = getAbortSignal('universities');
+        const res = await fetch(`${API}/api/universities?${params}`, { signal });
+        const data = await res.json();
+        const items = Array.isArray(data) ? data : (data.items || []);
+        const total = Array.isArray(data) ? items.length : (data.total || 0);
+        pageState.universities.total = total;
+        pageState.universities.offset += items.length;
+        document.getElementById('uniCount').textContent = `${total} universite`;
+        renderUniversities(items, { append });
+        renderLoadMore('universities', 'uniList', () => loadUniversities({ append: true }));
+    } catch (err) {
+        if (err.name === 'AbortError') return;
+        console.error('Universiteler yuklenemedi:', err);
+    }
 }
+
+function renderUniversities(items, { append = false } = {}) {
+    const container = document.getElementById('uniList');
+    const html = items.map(u => `
+        <div class="card-item" onclick="showUniversityDetail(${u.id})">
+            <div class="card-header">
+                <div class="card-icon"><span class="material-icons-outlined">account_balance</span></div>
+                <div class="card-title">${escapeHtml(u.name)}</div>
+            </div>
+            <div class="card-meta">
+                <span>${escapeHtml(u.city || '')}</span>
+                <span>${escapeHtml(u.region || '')}</span>
+                <span>${escapeHtml(u.type || '')}</span>
+                ${u.established ? `<span>${u.established}</span>` : ''}
+                ${u.academic_count ? `<span>${u.academic_count} akademisyen</span>` : ''}
+            </div>
+        </div>
+    `).join('');
+    if (append) {
+        container.insertAdjacentHTML('beforeend', html);
+    } else {
+        container.innerHTML = html;
+    }
+}
+
+// Debounced wrappers used by `oninput`/`onchange` handlers in the markup so
+// that fast typing only triggers a single network request per pause.
+const loadUniversitiesDebounced = debounce(loadUniversities, 350);
 
 async function showUniversityDetail(id) {
     try {
@@ -343,40 +428,58 @@ async function showUniversityDetail(id) {
 
 // ─── Academics ──────────────────────────────────────────────────────────────
 
-let acadSearchTimeout;
-async function loadAcademics() {
-    clearTimeout(acadSearchTimeout);
-    acadSearchTimeout = setTimeout(async () => {
-        const params = new URLSearchParams();
-        const search = document.getElementById('acadSearch')?.value;
-        const title = document.getElementById('acadTitle')?.value;
-        if (search) params.set('search', search);
-        if (title) params.set('title', title);
-        try {
-            const res = await fetch(`${API}/api/academics?${params}`);
-            const acads = await res.json();
-            document.getElementById('acadCount').textContent = `${acads.length} akademisyen`;
-            document.getElementById('acadList').innerHTML = acads.map(a => `
-                <div class="card-item" onclick="showAcademicDetail(${a.id})">
-                    <div class="card-header">
-                        <div class="card-icon"><span class="material-icons-outlined">person</span></div>
-                        <div class="card-title">${escapeHtml(a.title || '')} ${escapeHtml(a.name)}</div>
-                    </div>
-                    <div class="card-meta">
-                        <span>${escapeHtml(a.university || '')}</span>
-                        <span>${escapeHtml(a.department || '')}</span>
-                        ${a.source ? `<span class="tag">${escapeHtml(a.source)}</span>` : ''}
-                    </div>
-                    <div class="card-tags">
-                        ${(a.research_areas || '').split(',').filter(x=>x.trim()).slice(0,4).map(area => `<span class="tag">${escapeHtml(area.trim())}</span>`).join('')}
-                    </div>
-                </div>
-            `).join('');
-        } catch (err) {
-            console.error('Akademisyenler yuklenemedi:', err);
-        }
-    }, 250);
+async function loadAcademics({ append = false } = {}) {
+    const params = new URLSearchParams();
+    const search = document.getElementById('acadSearch')?.value;
+    const title = document.getElementById('acadTitle')?.value;
+    if (search) params.set('search', search);
+    if (title) params.set('title', title);
+    if (!append) pageState.academics.offset = 0;
+    params.set('limit', PAGE_SIZE);
+    params.set('offset', pageState.academics.offset);
+    try {
+        const signal = getAbortSignal('academics');
+        const res = await fetch(`${API}/api/academics?${params}`, { signal });
+        const data = await res.json();
+        const items = Array.isArray(data) ? data : (data.items || []);
+        const total = Array.isArray(data) ? items.length : (data.total || 0);
+        pageState.academics.total = total;
+        pageState.academics.offset += items.length;
+        document.getElementById('acadCount').textContent = `${total} akademisyen`;
+        renderAcademics(items, { append });
+        renderLoadMore('academics', 'acadList', () => loadAcademics({ append: true }));
+    } catch (err) {
+        if (err.name === 'AbortError') return;
+        console.error('Akademisyenler yuklenemedi:', err);
+    }
 }
+
+function renderAcademics(items, { append = false } = {}) {
+    const container = document.getElementById('acadList');
+    const html = items.map(a => `
+        <div class="card-item" onclick="showAcademicDetail(${a.id})">
+            <div class="card-header">
+                <div class="card-icon"><span class="material-icons-outlined">person</span></div>
+                <div class="card-title">${escapeHtml(a.title || '')} ${escapeHtml(a.name)}</div>
+            </div>
+            <div class="card-meta">
+                <span>${escapeHtml(a.university || '')}</span>
+                <span>${escapeHtml(a.department || '')}</span>
+                ${a.source ? `<span class="tag">${escapeHtml(a.source)}</span>` : ''}
+            </div>
+            <div class="card-tags">
+                ${(a.research_areas || '').split(',').filter(x=>x.trim()).slice(0,4).map(area => `<span class="tag">${escapeHtml(area.trim())}</span>`).join('')}
+            </div>
+        </div>
+    `).join('');
+    if (append) {
+        container.insertAdjacentHTML('beforeend', html);
+    } else {
+        container.innerHTML = html;
+    }
+}
+
+const loadAcademicsDebounced = debounce(loadAcademics, 350);
 
 async function showAcademicDetail(id) {
     try {
@@ -408,39 +511,92 @@ async function showAcademicDetail(id) {
 
 // ─── Publications ───────────────────────────────────────────────────────────
 
-let pubSearchTimeout;
-async function loadPublications() {
-    clearTimeout(pubSearchTimeout);
-    pubSearchTimeout = setTimeout(async () => {
-        const params = new URLSearchParams();
-        const search = document.getElementById('pubSearch')?.value;
-        const year = document.getElementById('pubYear')?.value;
-        if (search) params.set('search', search);
-        if (year) params.set('year', year);
-        try {
-            const res = await fetch(`${API}/api/publications?${params}`);
-            const pubs = await res.json();
-            document.getElementById('pubCount').textContent = `${pubs.length} yayin`;
-            document.getElementById('pubList').innerHTML = pubs.map(p => `
-                <div class="card-item">
-                    <div class="card-header">
-                        <div class="card-icon"><span class="material-icons-outlined">article</span></div>
-                        <div class="card-title">${escapeHtml(p.title)}</div>
-                    </div>
-                    <div class="card-meta">
-                        <span>${escapeHtml(p.authors || '')}</span>
-                        <span>${escapeHtml(p.journal || '')}</span>
-                        ${p.year ? `<span>${p.year}</span>` : ''}
-                        ${p.citations ? `<span>${p.citations} atif</span>` : ''}
-                        <span>${escapeHtml(p.type || 'Makale')}</span>
-                    </div>
-                    ${p.academic ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">Akademisyen: ${escapeHtml(p.academic)}</div>` : ''}
-                </div>
-            `).join('');
-        } catch (err) {
-            console.error('Yayinlar yuklenemedi:', err);
-        }
-    }, 250);
+async function loadPublications({ append = false } = {}) {
+    const params = new URLSearchParams();
+    const search = document.getElementById('pubSearch')?.value;
+    const year = document.getElementById('pubYear')?.value;
+    if (search) params.set('search', search);
+    if (year) params.set('year', year);
+    if (!append) pageState.publications.offset = 0;
+    params.set('limit', PAGE_SIZE);
+    params.set('offset', pageState.publications.offset);
+    try {
+        const signal = getAbortSignal('publications');
+        const res = await fetch(`${API}/api/publications?${params}`, { signal });
+        const data = await res.json();
+        const items = Array.isArray(data) ? data : (data.items || []);
+        const total = Array.isArray(data) ? items.length : (data.total || 0);
+        pageState.publications.total = total;
+        pageState.publications.offset += items.length;
+        document.getElementById('pubCount').textContent = `${total} yayin`;
+        renderPublications(items, { append });
+        renderLoadMore('publications', 'pubList', () => loadPublications({ append: true }));
+    } catch (err) {
+        if (err.name === 'AbortError') return;
+        console.error('Yayinlar yuklenemedi:', err);
+    }
+}
+
+function renderPublications(items, { append = false } = {}) {
+    const container = document.getElementById('pubList');
+    const html = items.map(p => `
+        <div class="card-item">
+            <div class="card-header">
+                <div class="card-icon"><span class="material-icons-outlined">article</span></div>
+                <div class="card-title">${escapeHtml(p.title)}</div>
+            </div>
+            <div class="card-meta">
+                <span>${escapeHtml(p.authors || '')}</span>
+                <span>${escapeHtml(p.journal || '')}</span>
+                ${p.year ? `<span>${p.year}</span>` : ''}
+                ${p.citations ? `<span>${p.citations} atif</span>` : ''}
+                <span>${escapeHtml(p.type || 'Makale')}</span>
+            </div>
+            ${p.academic ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">Akademisyen: ${escapeHtml(p.academic)}</div>` : ''}
+        </div>
+    `).join('');
+    if (append) {
+        container.insertAdjacentHTML('beforeend', html);
+    } else {
+        container.innerHTML = html;
+    }
+}
+
+const loadPublicationsDebounced = debounce(loadPublications, 350);
+
+// ─── Pagination UI ──────────────────────────────────────────────────────────
+
+// Render or remove a "Load more" button below a list. Uses the page state
+// for the given key to decide whether more rows are available on the server.
+function renderLoadMore(key, containerId, onClick) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const parent = container.parentElement;
+    if (!parent) return;
+    const existing = parent.querySelector(`[data-load-more="${key}"]`);
+    const state = pageState[key] || { offset: 0, total: 0 };
+    const hasMore = state.offset < state.total;
+    if (!hasMore) {
+        if (existing) existing.remove();
+        return;
+    }
+    const remaining = state.total - state.offset;
+    if (existing) {
+        existing.querySelector('.load-more-label').textContent =
+            `Daha fazla yukle (${remaining} kayit)`;
+        return;
+    }
+    const btn = document.createElement('button');
+    btn.className = 'btn-outlined';
+    btn.dataset.loadMore = key;
+    btn.style.cssText = 'margin:16px auto;display:block';
+    btn.innerHTML = `<span class="material-icons-outlined">expand_more</span> <span class="load-more-label">Daha fazla yukle (${remaining} kayit)</span>`;
+    btn.addEventListener('click', () => {
+        btn.disabled = true;
+        btn.querySelector('.load-more-label').textContent = 'Yukleniyor...';
+        Promise.resolve(onClick()).finally(() => { btn.disabled = false; });
+    });
+    container.insertAdjacentElement('afterend', btn);
 }
 
 // ─── Stats ──────────────────────────────────────────────────────────────────

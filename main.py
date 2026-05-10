@@ -5,11 +5,12 @@ from pathlib import Path
 from typing import Optional
 
 import aiofiles
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse as FastAPIFileResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.orm import Session, joinedload
 
 from ai_module import query_ai
 from database import SessionLocal, get_db, init_db
@@ -186,10 +187,12 @@ async def upload_file(
     return db_file
 
 
-@app.get("/api/files", response_model=list[FileResponse])
+@app.get("/api/files")
 def list_files(
     category: Optional[str] = None,
     search: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
     query = db.query(FileModel)
@@ -200,7 +203,29 @@ def list_files(
             FileModel.original_filename.ilike(f"%{search}%")
             | FileModel.description.ilike(f"%{search}%")
         )
-    return query.order_by(FileModel.created_at.desc()).all()
+    total = query.with_entities(func.count(FileModel.id)).scalar() or 0
+    rows = (
+        query.order_by(FileModel.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    items = [
+        {
+            "id": f.id,
+            "filename": f.filename,
+            "original_filename": f.original_filename,
+            "file_type": f.file_type,
+            "file_size": f.file_size,
+            "description": f.description,
+            "category": f.category,
+            "owner_id": f.owner_id,
+            "created_at": f.created_at,
+            "updated_at": f.updated_at,
+        }
+        for f in rows
+    ]
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 @app.get("/api/files/{file_id}", response_model=FileResponse)
@@ -261,10 +286,12 @@ def create_knowledge(entry: KnowledgeBaseCreate, db: Session = Depends(get_db)):
     return db_entry
 
 
-@app.get("/api/knowledge", response_model=list[KnowledgeBaseResponse])
+@app.get("/api/knowledge")
 def list_knowledge(
     category: Optional[str] = None,
     search: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
     query = db.query(KnowledgeBase)
@@ -275,7 +302,26 @@ def list_knowledge(
             KnowledgeBase.title.ilike(f"%{search}%")
             | KnowledgeBase.content.ilike(f"%{search}%")
         )
-    return query.order_by(KnowledgeBase.created_at.desc()).all()
+    total = query.with_entities(func.count(KnowledgeBase.id)).scalar() or 0
+    rows = (
+        query.order_by(KnowledgeBase.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    items = [
+        {
+            "id": k.id,
+            "title": k.title,
+            "content": k.content,
+            "source": k.source,
+            "category": k.category,
+            "created_at": k.created_at,
+            "updated_at": k.updated_at,
+        }
+        for k in rows
+    ]
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 @app.put("/api/knowledge/{entry_id}", response_model=KnowledgeBaseResponse)
@@ -339,29 +385,52 @@ def list_universities(
     city: Optional[str] = None,
     region: Optional[str] = None,
     university_type: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
-    query = db.query(University)
+    # Build the filtered base query once and reuse it for both the
+    # COUNT and the page query so filters stay consistent.
+    base_query = db.query(University)
     if search:
-        query = query.filter(
+        base_query = base_query.filter(
             University.name.ilike(f"%{search}%")
             | University.city.ilike(f"%{search}%")
         )
     if city:
-        query = query.filter(University.city.ilike(f"%{city}%"))
+        base_query = base_query.filter(University.city.ilike(f"%{city}%"))
     if region:
-        query = query.filter(University.region.ilike(f"%{region}%"))
+        base_query = base_query.filter(University.region.ilike(f"%{region}%"))
     if university_type:
-        query = query.filter(University.university_type == university_type)
-    results = query.order_by(University.name).all()
-    return [
+        base_query = base_query.filter(University.university_type == university_type)
+
+    total = base_query.with_entities(func.count(University.id)).scalar() or 0
+
+    # Eliminate the N+1 on `len(u.academics)` by aggregating academic counts
+    # in a single LEFT JOIN + GROUP BY.
+    page_rows = (
+        base_query.with_entities(
+            University,
+            func.count(Academic.id).label("academic_count"),
+        )
+        .outerjoin(Academic, Academic.university_id == University.id)
+        .group_by(University.id)
+        .order_by(University.name)
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    items = [
         {
             "id": u.id, "name": u.name, "city": u.city, "region": u.region,
             "type": u.university_type, "website": u.website,
-            "established": u.established_year, "academic_count": len(u.academics),
+            "established": u.established_year,
+            "academic_count": int(academic_count or 0),
         }
-        for u in results
+        for u, academic_count in page_rows
     ]
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 @app.get("/api/universities/{uni_id}")
@@ -387,6 +456,8 @@ def list_academics(
     search: Optional[str] = None,
     university_id: Optional[int] = None,
     title: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
     query = db.query(Academic)
@@ -400,8 +471,18 @@ def list_academics(
         query = query.filter(Academic.university_id == university_id)
     if title:
         query = query.filter(Academic.title.ilike(f"%{title}%"))
-    results = query.order_by(Academic.full_name).all()
-    return [
+
+    total = query.with_entities(func.count(Academic.id)).scalar() or 0
+    # Eager-load `university` so `a.university.name` doesn't trigger a SELECT
+    # per row (the previous N+1 hot spot when listing academics).
+    results = (
+        query.options(joinedload(Academic.university))
+        .order_by(Academic.full_name)
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    items = [
         {
             "id": a.id, "name": a.full_name, "title": a.title,
             "department": a.department, "faculty": a.faculty,
@@ -412,6 +493,7 @@ def list_academics(
         }
         for a in results
     ]
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 @app.get("/api/academics/{academic_id}")
@@ -438,6 +520,8 @@ def list_publications(
     search: Optional[str] = None,
     academic_id: Optional[int] = None,
     year: Optional[int] = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
     query = db.query(Publication)
@@ -451,8 +535,18 @@ def list_publications(
         query = query.filter(Publication.academic_id == academic_id)
     if year:
         query = query.filter(Publication.year == year)
-    results = query.order_by(Publication.year.desc()).all()
-    return [
+
+    total = query.with_entities(func.count(Publication.id)).scalar() or 0
+    # Eager-load `academic` so the per-row `p.academic.full_name` lookup
+    # doesn't issue an extra query for each publication.
+    results = (
+        query.options(joinedload(Publication.academic))
+        .order_by(Publication.year.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    items = [
         {
             "id": p.id, "title": p.title, "authors": p.authors,
             "journal": p.journal, "year": p.year, "doi": p.doi,
@@ -461,6 +555,7 @@ def list_publications(
         }
         for p in results
     ]
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 # ─── OpenAlex Endpoints ─────────────────────────────────────────────────────
