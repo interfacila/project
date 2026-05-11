@@ -424,11 +424,59 @@ def get_academic(academic_id: int, db: Session = Depends(get_db)):
         "department": acad.department, "faculty": acad.faculty,
         "university": acad.university.name if acad.university else None,
         "research_areas": acad.research_areas, "email": acad.email,
+        "profile_url": acad.profile_url,
         "publications": [
             {"id": p.id, "title": p.title, "journal": p.journal, "year": p.year}
             for p in acad.publications
         ],
     }
+
+
+@app.get("/api/academics/{academic_id}/publications/openalex")
+def get_academic_publications_from_openalex(academic_id: int, db: Session = Depends(get_db)):
+    """Fetch publications from OpenAlex using the academic's OpenAlex author ID."""
+    acad = db.query(Academic).filter(Academic.id == academic_id).first()
+    if not acad:
+        raise HTTPException(status_code=404, detail="Akademisyen bulunamadı")
+
+    if not acad.profile_url:
+        return {"results": [], "total": 0}
+
+    openalex_id = acad.profile_url
+    if openalex_id.startswith("https://openalex.org/"):
+        openalex_id = openalex_id.replace("https://openalex.org/", "")
+
+    try:
+        from openalex_module import _get
+        data = _get("/works", {"filter": f"author.id:{openalex_id}", "per_page": 50, "sort": "publication_year:desc"})
+        results = []
+        for item in data.get("results", []):
+            authorships = item.get("authorships", []) or []
+            authors_str = ", ".join(
+                a.get("author", {}).get("display_name", "")
+                for a in authorships[:5]
+                if a.get("author", {}).get("display_name")
+            )
+            journal = ""
+            loc = item.get("primary_location", {}) or {}
+            if loc.get("source"):
+                journal = loc["source"].get("display_name", "")
+            results.append({
+                "title": item.get("title", ""),
+                "authors": authors_str,
+                "journal": journal,
+                "year": item.get("publication_year"),
+                "doi": item.get("doi", ""),
+                "citations": item.get("cited_by_count", 0),
+                "type": item.get("type", ""),
+                "url": item.get("id", ""),
+            })
+        return {
+            "results": results,
+            "total": data.get("meta", {}).get("count", 0),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ─── Publication Endpoints ───────────────────────────────────────────────────
