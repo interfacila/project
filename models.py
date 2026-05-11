@@ -66,10 +66,10 @@ class University(Base):
     __tablename__ = "universities"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(500), nullable=False)
-    city = Column(String(200))
-    region = Column(String(200))
-    university_type = Column(String(100))  # Devlet / Vakıf
+    name = Column(String(500), nullable=False, index=True)
+    city = Column(String(200), index=True)
+    region = Column(String(200), index=True)
+    university_type = Column(String(100), index=True)  # Devlet / Vakıf
     website = Column(String(500))
     phone = Column(String(100))
     email = Column(String(200))
@@ -86,11 +86,11 @@ class Academic(Base):
     __tablename__ = "academics"
 
     id = Column(Integer, primary_key=True, index=True)
-    full_name = Column(String(500), nullable=False)
-    title = Column(String(200))  # Prof. Dr., Doç. Dr., Dr. Öğr. Üyesi, vb.
-    department = Column(String(500))
+    full_name = Column(String(500), nullable=False, index=True)
+    title = Column(String(200), index=True)  # Prof. Dr., Doç. Dr., Dr. Öğr. Üyesi, vb.
+    department = Column(String(500), index=True)
     faculty = Column(String(500))
-    university_id = Column(Integer, ForeignKey("universities.id"), nullable=True)
+    university_id = Column(Integer, ForeignKey("universities.id"), nullable=True, index=True)
     email = Column(String(300))
     phone = Column(String(100))
     website = Column(String(500))
@@ -109,13 +109,13 @@ class Publication(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(Text, nullable=False)
     authors = Column(Text)
-    journal = Column(String(500))
-    year = Column(Integer)
+    journal = Column(String(500), index=True)
+    year = Column(Integer, index=True)
     doi = Column(String(300))
     abstract = Column(Text)
     citation_count = Column(Integer, default=0)
-    publication_type = Column(String(200))  # Makale, Tez, Bildiri, Kitap
-    academic_id = Column(Integer, ForeignKey("academics.id"), nullable=True)
+    publication_type = Column(String(200), index=True)  # Makale, Tez, Bildiri, Kitap
+    academic_id = Column(Integer, ForeignKey("academics.id"), nullable=True, index=True)
     source = Column(String(200))
     url = Column(String(500))
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
