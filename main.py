@@ -475,8 +475,8 @@ def get_academic_publications_from_openalex(academic_id: int, db: Session = Depe
             "results": results,
             "total": data.get("meta", {}).get("count", 0),
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except (KeyError, ValueError, ConnectionError) as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # ─── Publication Endpoints ───────────────────────────────────────────────────
