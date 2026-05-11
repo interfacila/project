@@ -1,6 +1,21 @@
 const API = '';
 const pages = ['files','ai','knowledge','universities','academics','publications','openalex','stats'];
 
+// `t(key, vars)` is provided globally by /static/i18n.js. If the script
+// failed to load (e.g. offline), fall back to a no-op that returns the key
+// so the UI degrades gracefully rather than blowing up.
+if (typeof window.t !== 'function') {
+    window.t = (key) => key;
+}
+
+// Switch UI language at runtime. Called from the header TR/EN buttons.
+// Re-renders the currently visible list page so dynamic strings update too.
+function switchLanguage(code) {
+    if (window.I18N && typeof I18N.setLang === 'function') {
+        I18N.setLang(code);
+    }
+}
+
 // ─── Performance helpers ────────────────────────────────────────────────────
 // Default page size — kept aligned with the backend default to keep responses
 // small and rendering fast even with large datasets.
@@ -87,7 +102,7 @@ async function loadFiles({ append = false } = {}) {
         renderLoadMore('files', 'filesList', () => loadFiles({ append: true }));
     } catch (err) {
         if (err.name === 'AbortError') return;
-        console.error('Dosyalar yuklenemedi:', err);
+        console.error(t('files.load_failed') + ':', err);
     }
 }
 
@@ -99,9 +114,9 @@ function renderFiles(files, { append = false } = {}) {
         const iconName = getFileIconName(f.file_type || '');
         return `<div class="file-card">
             <div class="file-card-actions">
-                <button class="file-action-btn" onclick="event.stopPropagation();downloadFile(${f.id})" title="Indir"><span class="material-icons-outlined">download</span></button>
-                <button class="file-action-btn" onclick="event.stopPropagation();askAIAboutFile(${f.id},'${escapeHtml(f.original_filename)}')" title="AI Sor"><span class="material-icons-outlined">smart_toy</span></button>
-                <button class="file-action-btn" onclick="event.stopPropagation();deleteFile(${f.id})" title="Sil"><span class="material-icons-outlined">delete</span></button>
+                <button class="file-action-btn" onclick="event.stopPropagation();downloadFile(${f.id})" title="${escapeHtml(t('files.download'))}"><span class="material-icons-outlined">download</span></button>
+                <button class="file-action-btn" onclick="event.stopPropagation();askAIAboutFile(${f.id},'${escapeHtml(f.original_filename)}')" title="${escapeHtml(t('files.ask_ai'))}"><span class="material-icons-outlined">smart_toy</span></button>
+                <button class="file-action-btn" onclick="event.stopPropagation();deleteFile(${f.id})" title="${escapeHtml(t('files.delete'))}"><span class="material-icons-outlined">delete</span></button>
             </div>
             <div class="file-card-icon ${iconClass}"><span class="material-icons-outlined">${iconName}</span></div>
             <div class="file-card-name" title="${escapeHtml(f.original_filename)}">${escapeHtml(f.original_filename)}</div>
@@ -147,14 +162,15 @@ function formatFileSize(bytes) {
 function formatDate(dateStr) {
     if (!dateStr) return '';
     const d = new Date(dateStr);
-    return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' });
+    const lang = (window.I18N && I18N.lang && I18N.lang()) || 'tr';
+    return d.toLocaleDateString(lang === 'en' ? 'en-US' : 'tr-TR', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function updateStorage(files) {
     const total = files.reduce((sum, f) => sum + (f.file_size || 0), 0);
     const maxStorage = 1024 * 1024 * 1024;
     const pct = Math.min((total / maxStorage) * 100, 100);
-    document.getElementById('storageText').textContent = `${formatFileSize(total)} / 1 GB kullanildi`;
+    document.getElementById('storageText').textContent = t('files.storage_used', { used: formatFileSize(total) });
     document.getElementById('storageBar').style.width = pct + '%';
 }
 
@@ -163,13 +179,13 @@ async function downloadFile(id) {
 }
 
 async function deleteFile(id) {
-    if (!confirm('Bu dosyayi silmek istediginize emin misiniz?')) return;
+    if (!confirm(t('files.delete_confirm'))) return;
     try {
         await fetch(`${API}/api/files/${id}`, { method: 'DELETE' });
-        showToast('Dosya silindi');
+        showToast(t('files.deleted'));
         loadFiles();
     } catch (err) {
-        showToast('Dosya silinemedi');
+        showToast(t('files.delete_failed'));
     }
 }
 
@@ -193,10 +209,10 @@ function handleFileSelect(files) {
 
 async function uploadFiles() {
     const input = document.getElementById('fileInput');
-    if (!input.files.length) { showToast('Lutfen dosya secin'); return; }
+    if (!input.files.length) { showToast(t('files.select_first')); return; }
     const btn = document.getElementById('uploadBtn');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span> Yukleniyor...';
+    btn.innerHTML = `<span class="spinner"></span> ${escapeHtml(t('files.uploading'))}`;
     try {
         for (const file of input.files) {
             const fd = new FormData();
@@ -205,14 +221,14 @@ async function uploadFiles() {
             fd.append('category', document.getElementById('uploadCategory').value);
             await fetch(`${API}/api/files`, { method: 'POST', body: fd });
         }
-        showToast(`${input.files.length} dosya yuklendi`);
+        showToast(t('files.uploaded_n', { count: input.files.length }));
         closeUploadModal();
         loadFiles();
     } catch (err) {
-        showToast('Yukleme hatasi');
+        showToast(t('files.upload_error'));
     }
     btn.disabled = false;
-    btn.innerHTML = '<span class="material-icons-outlined">upload</span> Yukle';
+    btn.innerHTML = `<span class="material-icons-outlined">upload</span> ${escapeHtml(t('files.upload'))}`;
     input.value = '';
 }
 
@@ -233,7 +249,7 @@ async function sendAIQuery() {
     const messages = document.getElementById('aiMessages');
     messages.innerHTML += `<div class="ai-msg user"><span class="material-icons-outlined msg-avatar">person</span><div class="msg-content">${escapeHtml(query)}</div></div>`;
     input.value = '';
-    messages.innerHTML += `<div class="ai-msg assistant" id="aiLoading"><span class="material-icons-outlined msg-avatar">smart_toy</span><div class="msg-content"><span class="spinner"></span> Dusunuyor...</div></div>`;
+    messages.innerHTML += `<div class="ai-msg assistant" id="aiLoading"><span class="material-icons-outlined msg-avatar">smart_toy</span><div class="msg-content"><span class="spinner"></span> ${escapeHtml(t('ai.thinking'))}</div></div>`;
     messages.scrollTop = messages.scrollHeight;
     try {
         const res = await fetch(`${API}/api/ai/query`, {
@@ -244,11 +260,11 @@ async function sendAIQuery() {
         const data = await res.json();
         const loading = document.getElementById('aiLoading');
         if (loading) loading.remove();
-        messages.innerHTML += `<div class="ai-msg assistant"><span class="material-icons-outlined msg-avatar">smart_toy</span><div class="msg-content">${escapeHtml(data.response_text || data.detail || 'Yanit alinamadi')}</div></div>`;
+        messages.innerHTML += `<div class="ai-msg assistant"><span class="material-icons-outlined msg-avatar">smart_toy</span><div class="msg-content">${escapeHtml(data.response_text || data.detail || t('ai.no_response'))}</div></div>`;
     } catch (err) {
         const loading = document.getElementById('aiLoading');
         if (loading) loading.remove();
-        messages.innerHTML += `<div class="ai-msg assistant"><span class="material-icons-outlined msg-avatar">smart_toy</span><div class="msg-content">Bir hata olustu. Lutfen tekrar deneyin.</div></div>`;
+        messages.innerHTML += `<div class="ai-msg assistant"><span class="material-icons-outlined msg-avatar">smart_toy</span><div class="msg-content">${escapeHtml(t('ai.error_msg'))}</div></div>`;
     }
     messages.scrollTop = messages.scrollHeight;
 }
@@ -256,7 +272,7 @@ async function sendAIQuery() {
 function askAIAboutFile(fileId, fileName) {
     switchPage('ai');
     const input = document.getElementById('aiInput');
-    input.value = `"${fileName}" dosyasi hakkinda bilgi ver`;
+    input.value = t('ai.ask_about_file', { name: fileName });
     input.focus();
 }
 
@@ -279,7 +295,7 @@ async function loadKnowledge({ append = false } = {}) {
         renderLoadMore('knowledge', 'kbList', () => loadKnowledge({ append: true }));
     } catch (err) {
         if (err.name === 'AbortError') return;
-        console.error('Bilgi tabani yuklenemedi:', err);
+        console.error(t('knowledge.load_failed') + ':', err);
     }
 }
 
@@ -291,17 +307,17 @@ function renderKnowledge(entries, { append = false } = {}) {
             <div class="kb-card-content">${escapeHtml(entry.content)}</div>
             <div class="kb-card-footer">
                 <div class="kb-card-meta">
-                    <span class="tag">${escapeHtml(entry.category || 'Genel')}</span>
+                    <span class="tag">${escapeHtml(t('categories.' + (entry.category || 'Genel')))}</span>
                     ${entry.source ? `<span style="margin-left:8px">${escapeHtml(entry.source)}</span>` : ''}
                 </div>
-                <button class="btn-danger" onclick="deleteKnowledge(${entry.id})">Sil</button>
+                <button class="btn-danger" onclick="deleteKnowledge(${entry.id})">${escapeHtml(t('knowledge.delete_btn'))}</button>
             </div>
         </div>
     `).join('');
     if (append) {
         container.insertAdjacentHTML('beforeend', html);
     } else if (!entries.length) {
-        container.innerHTML = '<div class="empty-state" style="padding:40px"><span class="material-icons-outlined empty-icon">menu_book</span><h3>Henuz bilgi kaydedilmemis</h3></div>';
+        container.innerHTML = `<div class="empty-state" style="padding:40px"><span class="material-icons-outlined empty-icon">menu_book</span><h3>${escapeHtml(t('knowledge.empty_title'))}</h3></div>`;
     } else {
         container.innerHTML = html;
     }
@@ -310,7 +326,7 @@ function renderKnowledge(entries, { append = false } = {}) {
 async function addKnowledge() {
     const title = document.getElementById('kbTitle').value.trim();
     const content = document.getElementById('kbContent').value.trim();
-    if (!title || !content) { showToast('Baslik ve icerik zorunludur'); return; }
+    if (!title || !content) { showToast(t('knowledge.title_required')); return; }
     try {
         await fetch(`${API}/api/knowledge`, {
             method: 'POST',
@@ -324,21 +340,21 @@ async function addKnowledge() {
         document.getElementById('kbTitle').value = '';
         document.getElementById('kbContent').value = '';
         document.getElementById('kbSource').value = '';
-        showToast('Bilgi eklendi');
+        showToast(t('knowledge.added'));
         loadKnowledge();
     } catch (err) {
-        showToast('Bilgi eklenemedi');
+        showToast(t('knowledge.add_failed'));
     }
 }
 
 async function deleteKnowledge(id) {
-    if (!confirm('Bu bilgiyi silmek istediginize emin misiniz?')) return;
+    if (!confirm(t('knowledge.delete_confirm'))) return;
     try {
         await fetch(`${API}/api/knowledge/${id}`, { method: 'DELETE' });
-        showToast('Bilgi silindi');
+        showToast(t('knowledge.deleted'));
         loadKnowledge();
     } catch (err) {
-        showToast('Silinemedi');
+        showToast(t('knowledge.delete_failed'));
     }
 }
 
@@ -363,12 +379,12 @@ async function loadUniversities({ append = false } = {}) {
         const total = Array.isArray(data) ? items.length : (data.total || 0);
         pageState.universities.total = total;
         pageState.universities.offset += items.length;
-        document.getElementById('uniCount').textContent = `${total} universite`;
+        document.getElementById('uniCount').textContent = t('universities.count', { n: total });
         renderUniversities(items, { append });
         renderLoadMore('universities', 'uniList', () => loadUniversities({ append: true }));
     } catch (err) {
         if (err.name === 'AbortError') return;
-        console.error('Universiteler yuklenemedi:', err);
+        console.error(t('universities.load_failed') + ':', err);
     }
 }
 
@@ -382,10 +398,10 @@ function renderUniversities(items, { append = false } = {}) {
             </div>
             <div class="card-meta">
                 <span>${escapeHtml(u.city || '')}</span>
-                <span>${escapeHtml(u.region || '')}</span>
-                <span>${escapeHtml(u.type || '')}</span>
+                <span>${escapeHtml(u.region ? t('regions.' + u.region) : '')}</span>
+                <span>${escapeHtml(u.type ? t('uni_types.' + u.type) : '')}</span>
                 ${u.established ? `<span>${u.established}</span>` : ''}
-                ${u.academic_count ? `<span>${u.academic_count} akademisyen</span>` : ''}
+                ${u.academic_count ? `<span>${escapeHtml(t('universities.academic_count', { n: u.academic_count }))}</span>` : ''}
             </div>
         </div>
     `).join('');
@@ -407,22 +423,22 @@ async function showUniversityDetail(id) {
         document.getElementById('universityDetail').innerHTML = `
             <h3 style="margin-bottom:16px">${escapeHtml(uni.name)}</h3>
             <div class="detail-grid">
-                <div class="detail-item"><strong>Sehir</strong>${escapeHtml(uni.city || '-')}</div>
-                <div class="detail-item"><strong>Bolge</strong>${escapeHtml(uni.region || '-')}</div>
-                <div class="detail-item"><strong>Tur</strong>${escapeHtml(uni.type || '-')}</div>
-                ${uni.established ? `<div class="detail-item"><strong>Kurulus</strong>${uni.established}</div>` : ''}
-                ${uni.website ? `<div class="detail-item"><strong>Web</strong><a href="${uni.website}" target="_blank">${uni.website}</a></div>` : ''}
+                <div class="detail-item"><strong>${escapeHtml(t('universities.city'))}</strong>${escapeHtml(uni.city || '-')}</div>
+                <div class="detail-item"><strong>${escapeHtml(t('universities.region'))}</strong>${escapeHtml(uni.region ? t('regions.' + uni.region) : '-')}</div>
+                <div class="detail-item"><strong>${escapeHtml(t('universities.type'))}</strong>${escapeHtml(uni.type ? t('uni_types.' + uni.type) : '-')}</div>
+                ${uni.established ? `<div class="detail-item"><strong>${escapeHtml(t('universities.established'))}</strong>${uni.established}</div>` : ''}
+                ${uni.website ? `<div class="detail-item"><strong>${escapeHtml(t('universities.website'))}</strong><a href="${uni.website}" target="_blank">${uni.website}</a></div>` : ''}
             </div>
             ${uni.academics && uni.academics.length > 0 ? `
-                <h4 style="margin-top:20px;margin-bottom:8px">Akademisyenler (${uni.academics.length})</h4>
+                <h4 style="margin-top:20px;margin-bottom:8px">${escapeHtml(t('universities.academics_n', { n: uni.academics.length }))}</h4>
                 <div class="detail-list">
                     ${uni.academics.map(a => `<div class="detail-list-item" onclick="showAcademicDetail(${a.id});document.getElementById('universityModal').style.display='none'"><strong>${escapeHtml(a.title || '')} ${escapeHtml(a.name)}</strong><span style="color:var(--text-secondary);font-size:13px">${escapeHtml(a.department || '')}</span></div>`).join('')}
                 </div>
-            ` : '<p style="color:var(--text-secondary);margin-top:16px">Bu universitede kayitli akademisyen yok.</p>'}
+            ` : `<p style="color:var(--text-secondary);margin-top:16px">${escapeHtml(t('universities.no_academics'))}</p>`}
         `;
         document.getElementById('universityModal').style.display = 'flex';
     } catch (err) {
-        console.error('Universite detayi yuklenemedi:', err);
+        console.error(t('universities.detail_load_failed') + ':', err);
     }
 }
 
@@ -445,12 +461,12 @@ async function loadAcademics({ append = false } = {}) {
         const total = Array.isArray(data) ? items.length : (data.total || 0);
         pageState.academics.total = total;
         pageState.academics.offset += items.length;
-        document.getElementById('acadCount').textContent = `${total} akademisyen`;
+        document.getElementById('acadCount').textContent = t('academics.count', { n: total });
         renderAcademics(items, { append });
         renderLoadMore('academics', 'acadList', () => loadAcademics({ append: true }));
     } catch (err) {
         if (err.name === 'AbortError') return;
-        console.error('Akademisyenler yuklenemedi:', err);
+        console.error(t('academics.load_failed') + ':', err);
     }
 }
 
@@ -460,7 +476,7 @@ function renderAcademics(items, { append = false } = {}) {
         <div class="card-item" onclick="showAcademicDetail(${a.id})">
             <div class="card-header">
                 <div class="card-icon"><span class="material-icons-outlined">person</span></div>
-                <div class="card-title">${escapeHtml(a.title || '')} ${escapeHtml(a.name)}</div>
+                <div class="card-title">${escapeHtml(translateTitle(a.title))} ${escapeHtml(a.name)}</div>
             </div>
             <div class="card-meta">
                 <span>${escapeHtml(a.university || '')}</span>
@@ -486,26 +502,26 @@ async function showAcademicDetail(id) {
         const res = await fetch(`${API}/api/academics/${id}`);
         const a = await res.json();
         document.getElementById('academicDetail').innerHTML = `
-            <h3 style="margin-bottom:16px">${escapeHtml(a.title || '')} ${escapeHtml(a.name)}</h3>
+            <h3 style="margin-bottom:16px">${escapeHtml(translateTitle(a.title))} ${escapeHtml(a.name)}</h3>
             <div class="detail-grid">
-                <div class="detail-item"><strong>Universite</strong>${escapeHtml(a.university || '-')}</div>
-                <div class="detail-item"><strong>Fakulte</strong>${escapeHtml(a.faculty || '-')}</div>
-                <div class="detail-item"><strong>Bolum</strong>${escapeHtml(a.department || '-')}</div>
-                ${a.email ? `<div class="detail-item"><strong>E-posta</strong>${escapeHtml(a.email)}</div>` : ''}
+                <div class="detail-item"><strong>${escapeHtml(t('academics.university'))}</strong>${escapeHtml(a.university || '-')}</div>
+                <div class="detail-item"><strong>${escapeHtml(t('academics.faculty'))}</strong>${escapeHtml(a.faculty || '-')}</div>
+                <div class="detail-item"><strong>${escapeHtml(t('academics.department'))}</strong>${escapeHtml(a.department || '-')}</div>
+                ${a.email ? `<div class="detail-item"><strong>${escapeHtml(t('academics.email'))}</strong>${escapeHtml(a.email)}</div>` : ''}
             </div>
-            <div style="margin-top:16px"><strong style="font-size:13px;color:var(--text-secondary)">Arastirma Alanlari</strong>
+            <div style="margin-top:16px"><strong style="font-size:13px;color:var(--text-secondary)">${escapeHtml(t('academics.research_areas'))}</strong>
                 <div class="card-tags" style="margin-top:8px">${(a.research_areas || '').split(',').filter(x=>x.trim()).map(area => `<span class="tag">${escapeHtml(area.trim())}</span>`).join('')}</div>
             </div>
             ${a.publications && a.publications.length > 0 ? `
-                <h4 style="margin-top:20px;margin-bottom:8px">Yayinlar (${a.publications.length})</h4>
+                <h4 style="margin-top:20px;margin-bottom:8px">${escapeHtml(t('academics.publications_n', { n: a.publications.length }))}</h4>
                 <div class="detail-list">
                     ${a.publications.map(p => `<div class="detail-list-item"><strong>${escapeHtml(p.title)}</strong><span style="color:var(--text-secondary);font-size:13px">${escapeHtml(p.journal || '')} ${p.year ? '(' + p.year + ')' : ''}</span></div>`).join('')}
                 </div>
-            ` : '<p style="color:var(--text-secondary);margin-top:16px">Kayitli yayin yok.</p>'}
+            ` : `<p style="color:var(--text-secondary);margin-top:16px">${escapeHtml(t('academics.no_publications'))}</p>`}
         `;
         document.getElementById('academicModal').style.display = 'flex';
     } catch (err) {
-        console.error('Akademisyen detayi yuklenemedi:', err);
+        console.error(t('academics.detail_load_failed') + ':', err);
     }
 }
 
@@ -528,12 +544,12 @@ async function loadPublications({ append = false } = {}) {
         const total = Array.isArray(data) ? items.length : (data.total || 0);
         pageState.publications.total = total;
         pageState.publications.offset += items.length;
-        document.getElementById('pubCount').textContent = `${total} yayin`;
+        document.getElementById('pubCount').textContent = t('publications.count', { n: total });
         renderPublications(items, { append });
         renderLoadMore('publications', 'pubList', () => loadPublications({ append: true }));
     } catch (err) {
         if (err.name === 'AbortError') return;
-        console.error('Yayinlar yuklenemedi:', err);
+        console.error(t('publications.load_failed') + ':', err);
     }
 }
 
@@ -549,10 +565,10 @@ function renderPublications(items, { append = false } = {}) {
                 <span>${escapeHtml(p.authors || '')}</span>
                 <span>${escapeHtml(p.journal || '')}</span>
                 ${p.year ? `<span>${p.year}</span>` : ''}
-                ${p.citations ? `<span>${p.citations} atif</span>` : ''}
-                <span>${escapeHtml(p.type || 'Makale')}</span>
+                ${p.citations ? `<span>${escapeHtml(t('publications.citations', { n: p.citations }))}</span>` : ''}
+                <span>${escapeHtml(p.type || t('publications.default_type'))}</span>
             </div>
-            ${p.academic ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">Akademisyen: ${escapeHtml(p.academic)}</div>` : ''}
+            ${p.academic ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">${escapeHtml(t('publications.academic_label', { name: p.academic }))}</div>` : ''}
         </div>
     `).join('');
     if (append) {
@@ -583,17 +599,17 @@ function renderLoadMore(key, containerId, onClick) {
     const remaining = state.total - state.offset;
     if (existing) {
         existing.querySelector('.load-more-label').textContent =
-            `Daha fazla yukle (${remaining} kayit)`;
+            t('common.load_more', { n: remaining });
         return;
     }
     const btn = document.createElement('button');
     btn.className = 'btn-outlined';
     btn.dataset.loadMore = key;
     btn.style.cssText = 'margin:16px auto;display:block';
-    btn.innerHTML = `<span class="material-icons-outlined">expand_more</span> <span class="load-more-label">Daha fazla yukle (${remaining} kayit)</span>`;
+    btn.innerHTML = `<span class="material-icons-outlined">expand_more</span> <span class="load-more-label">${escapeHtml(t('common.load_more', { n: remaining }))}</span>`;
     btn.addEventListener('click', () => {
         btn.disabled = true;
-        btn.querySelector('.load-more-label').textContent = 'Yukleniyor...';
+        btn.querySelector('.load-more-label').textContent = t('common.loading');
         Promise.resolve(onClick()).finally(() => { btn.disabled = false; });
     });
     container.insertAdjacentElement('afterend', btn);
@@ -606,16 +622,16 @@ async function loadStats() {
         const res = await fetch(`${API}/api/stats`);
         const stats = await res.json();
         document.getElementById('statsGrid').innerHTML = `
-            <div class="stat-card"><span class="material-icons-outlined">folder</span><div class="stat-number">${stats.total_files || 0}</div><div class="stat-label">Dosya</div></div>
-            <div class="stat-card"><span class="material-icons-outlined">menu_book</span><div class="stat-number">${stats.total_knowledge || 0}</div><div class="stat-label">Bilgi Kaydi</div></div>
-            <div class="stat-card"><span class="material-icons-outlined">smart_toy</span><div class="stat-number">${stats.total_queries || 0}</div><div class="stat-label">AI Sorgu</div></div>
-            <div class="stat-card"><span class="material-icons-outlined">account_balance</span><div class="stat-number">${stats.total_universities || 0}</div><div class="stat-label">Universite</div></div>
-            <div class="stat-card"><span class="material-icons-outlined">person</span><div class="stat-number">${stats.total_academics || 0}</div><div class="stat-label">Akademisyen</div></div>
-            <div class="stat-card"><span class="material-icons-outlined">article</span><div class="stat-number">${stats.total_publications || 0}</div><div class="stat-label">Yayin</div></div>
-            <div class="stat-card"><span class="material-icons-outlined">people</span><div class="stat-number">${stats.total_users || 0}</div><div class="stat-label">Kullanici</div></div>
+            <div class="stat-card"><span class="material-icons-outlined">folder</span><div class="stat-number">${stats.total_files || 0}</div><div class="stat-label">${escapeHtml(t('stats.files'))}</div></div>
+            <div class="stat-card"><span class="material-icons-outlined">menu_book</span><div class="stat-number">${stats.total_knowledge || 0}</div><div class="stat-label">${escapeHtml(t('stats.knowledge'))}</div></div>
+            <div class="stat-card"><span class="material-icons-outlined">smart_toy</span><div class="stat-number">${stats.total_queries || 0}</div><div class="stat-label">${escapeHtml(t('stats.ai_queries'))}</div></div>
+            <div class="stat-card"><span class="material-icons-outlined">account_balance</span><div class="stat-number">${stats.total_universities || 0}</div><div class="stat-label">${escapeHtml(t('stats.universities'))}</div></div>
+            <div class="stat-card"><span class="material-icons-outlined">person</span><div class="stat-number">${stats.total_academics || 0}</div><div class="stat-label">${escapeHtml(t('stats.academics'))}</div></div>
+            <div class="stat-card"><span class="material-icons-outlined">article</span><div class="stat-number">${stats.total_publications || 0}</div><div class="stat-label">${escapeHtml(t('stats.publications'))}</div></div>
+            <div class="stat-card"><span class="material-icons-outlined">people</span><div class="stat-number">${stats.total_users || 0}</div><div class="stat-label">${escapeHtml(t('stats.users'))}</div></div>
         `;
     } catch (err) {
-        console.error('Istatistikler yuklenemedi:', err);
+        console.error(t('stats.load_failed') + ':', err);
     }
 }
 
@@ -628,10 +644,10 @@ async function startSync() {
     const search = document.getElementById('syncSearch').value;
 
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span> Senkronize ediliyor...';
+    btn.innerHTML = `<span class="spinner"></span> ${escapeHtml(t('openalex.syncing'))}`;
     statusEl.style.display = 'block';
     statusEl.className = 'sync-status syncing';
-    statusEl.innerHTML = 'Senkronizasyon baslatildi... Tum veriler cekilecek, bu islem uzun surebilir.';
+    statusEl.innerHTML = escapeHtml(t('openalex.sync_started'));
 
     try {
         const params = new URLSearchParams({ country_code: country });
@@ -640,32 +656,54 @@ async function startSync() {
         pollSyncStatus(statusEl, btn);
     } catch (err) {
         statusEl.className = 'sync-status error';
-        statusEl.innerHTML = 'Senkronizasyon baslatilamadi: ' + err.message;
+        statusEl.innerHTML = escapeHtml(t('openalex.sync_failed', { err: err.message }));
         btn.disabled = false;
-        btn.innerHTML = '<span class="material-icons-outlined">cloud_download</span> Senkronizasyonu Baslat';
+        btn.innerHTML = `<span class="material-icons-outlined">cloud_download</span> ${escapeHtml(t('openalex.start_sync'))}`;
     }
 }
 
 function formatNumber(n) {
-    return (n || 0).toLocaleString('tr-TR');
+    const lang = (window.I18N && I18N.lang && I18N.lang()) || 'tr';
+    return (n || 0).toLocaleString(lang === 'en' ? 'en-US' : 'tr-TR');
+}
+
+// Translate academic title prefix ("Prof.", "Doc.", "Dr. Ogr.") to current
+// locale. Returns the original string if no translation key matches.
+function translateTitle(title) {
+    if (!title) return '';
+    const trimmed = title.trim();
+    const known = ['Prof.', 'Doc.', 'Dr. Ogr.'];
+    if (known.includes(trimmed)) {
+        const translated = t('titles.' + trimmed);
+        // If t() returned the key unchanged, fallback to the original.
+        return translated && !translated.startsWith('titles.') ? translated : trimmed;
+    }
+    return trimmed;
 }
 
 function buildProgressHTML(data) {
-    const phaseLabels = { starting: 'Baslatiliyor...', institutions: 'Universiteler', authors: 'Akademisyenler', works: 'Yayinlar', completed: 'Tamamlandi', error: 'Hata' };
+    const phaseLabels = {
+        starting: t('openalex.phase_starting'),
+        institutions: t('openalex.phase_institutions'),
+        authors: t('openalex.phase_authors'),
+        works: t('openalex.phase_works'),
+        completed: t('openalex.phase_completed'),
+        error: t('openalex.phase_error'),
+    };
     const phase = data.phase || 'starting';
     const fetched = data.phase_fetched || 0;
     const total = data.phase_total || 0;
     const pct = total > 0 ? Math.min(Math.round((fetched / total) * 100), 100) : 0;
     const prog = data.progress || {};
 
-    let html = `<div style="margin-bottom:8px"><strong>${phaseLabels[phase] || phase}</strong>`;
+    let html = `<div style="margin-bottom:8px"><strong>${escapeHtml(phaseLabels[phase] || phase)}</strong>`;
     if (total > 0) html += ` - ${formatNumber(fetched)} / ${formatNumber(total)} (${pct}%)`;
     html += '</div>';
     if (total > 0) html += `<div style="background:#e0e0e0;border-radius:4px;height:6px;margin-bottom:8px"><div style="background:var(--primary);height:100%;border-radius:4px;width:${pct}%;transition:width 0.3s"></div></div>`;
 
-    if (prog.institutions) html += `<div style="font-size:12px">Universiteler: ${formatNumber(prog.institutions.total_saved)} kaydedildi / ${formatNumber(prog.institutions.total_fetched)} cekildi</div>`;
-    if (prog.authors) html += `<div style="font-size:12px">Akademisyenler: ${formatNumber(prog.authors.total_saved)} kaydedildi / ${formatNumber(prog.authors.total_fetched)} cekildi</div>`;
-    if (prog.works) html += `<div style="font-size:12px">Yayinlar: ${formatNumber(prog.works.total_saved)} kaydedildi / ${formatNumber(prog.works.total_fetched)} cekildi</div>`;
+    if (prog.institutions) html += `<div style="font-size:12px">${escapeHtml(t('openalex.progress_uni', { saved: formatNumber(prog.institutions.total_saved), fetched: formatNumber(prog.institutions.total_fetched) }))}</div>`;
+    if (prog.authors) html += `<div style="font-size:12px">${escapeHtml(t('openalex.progress_authors', { saved: formatNumber(prog.authors.total_saved), fetched: formatNumber(prog.authors.total_fetched) }))}</div>`;
+    if (prog.works) html += `<div style="font-size:12px">${escapeHtml(t('openalex.progress_works', { saved: formatNumber(prog.works.total_saved), fetched: formatNumber(prog.works.total_fetched) }))}</div>`;
     return html;
 }
 
@@ -679,22 +717,22 @@ async function pollSyncStatus(statusEl, btn) {
                 setTimeout(check, 2000);
             } else if (data.error) {
                 statusEl.className = 'sync-status error';
-                statusEl.innerHTML = 'Hata: ' + data.error;
-                if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-icons-outlined">cloud_download</span> Senkronizasyonu Baslat'; }
+                statusEl.innerHTML = escapeHtml(t('openalex.phase_error') + ': ' + data.error);
+                if (btn) { btn.disabled = false; btn.innerHTML = `<span class="material-icons-outlined">cloud_download</span> ${escapeHtml(t('openalex.start_sync'))}`; }
             } else if (data.last_result) {
                 const r = data.last_result;
                 statusEl.className = 'sync-status done';
-                statusEl.innerHTML = `Senkronizasyon tamamlandi!<br>
-                    Universiteler: ${formatNumber(r.institutions?.total_saved)} kaydedildi (${formatNumber(r.institutions?.total_fetched)} cekildi)<br>
-                    Akademisyenler: ${formatNumber(r.authors?.total_saved)} kaydedildi (${formatNumber(r.authors?.total_fetched)} cekildi)<br>
-                    Yayinlar: ${formatNumber(r.works?.total_saved)} kaydedildi (${formatNumber(r.works?.total_fetched)} cekildi)`;
-                if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-icons-outlined">cloud_download</span> Senkronizasyonu Baslat'; }
-                showToast('OpenAlex senkronizasyonu tamamlandi!');
+                statusEl.innerHTML = `${escapeHtml(t('openalex.sync_done'))}<br>
+                    ${escapeHtml(t('openalex.saved_summary_uni', { saved: formatNumber(r.institutions?.total_saved), fetched: formatNumber(r.institutions?.total_fetched) }))}<br>
+                    ${escapeHtml(t('openalex.saved_summary_authors', { saved: formatNumber(r.authors?.total_saved), fetched: formatNumber(r.authors?.total_fetched) }))}<br>
+                    ${escapeHtml(t('openalex.saved_summary_works', { saved: formatNumber(r.works?.total_saved), fetched: formatNumber(r.works?.total_fetched) }))}`;
+                if (btn) { btn.disabled = false; btn.innerHTML = `<span class="material-icons-outlined">cloud_download</span> ${escapeHtml(t('openalex.start_sync'))}`; }
+                showToast(t('openalex.sync_completed_toast'));
                 hideSyncBanner();
             } else {
                 statusEl.className = 'sync-status done';
-                statusEl.innerHTML = 'Senkronizasyon tamamlandi.';
-                if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-icons-outlined">cloud_download</span> Senkronizasyonu Baslat'; }
+                statusEl.innerHTML = escapeHtml(t('openalex.sync_done_simple'));
+                if (btn) { btn.disabled = false; btn.innerHTML = `<span class="material-icons-outlined">cloud_download</span> ${escapeHtml(t('openalex.start_sync'))}`; }
                 hideSyncBanner();
             }
         } catch (err) {
@@ -707,28 +745,28 @@ async function pollSyncStatus(statusEl, btn) {
 async function searchOpenAlex() {
     const type = document.getElementById('oaSearchType').value;
     const query = document.getElementById('oaSearchQuery').value.trim();
-    if (!query) { showToast('Arama terimi girin'); return; }
+    if (!query) { showToast(t('openalex.search_term_required')); return; }
     const resultsEl = document.getElementById('oaResults');
     resultsEl.innerHTML = '<div style="text-align:center;padding:20px"><span class="spinner"></span></div>';
     try {
         const res = await fetch(`${API}/api/openalex/search/${type}?query=${encodeURIComponent(query)}`);
         const data = await res.json();
         if (!data.results || !data.results.length) {
-            resultsEl.innerHTML = '<p style="color:var(--text-secondary);padding:16px">Sonuc bulunamadi.</p>';
+            resultsEl.innerHTML = `<p style="color:var(--text-secondary);padding:16px">${escapeHtml(t('openalex.no_results'))}</p>`;
             return;
         }
-        resultsEl.innerHTML = `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">${data.total.toLocaleString()} sonuc bulundu</div>` +
+        resultsEl.innerHTML = `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">${escapeHtml(t('openalex.results_found', { n: formatNumber(data.total) }))}</div>` +
             data.results.map(item => {
                 if (type === 'works') {
-                    return `<div class="oa-result-item"><div class="oa-result-title">${escapeHtml(item.title || '')}</div><div class="oa-result-meta">${escapeHtml(item.authors || '')} | ${escapeHtml(item.journal || '')} ${item.year ? '(' + item.year + ')' : ''} | ${item.citations || 0} atif ${item.open_access ? '| Acik Erisim' : ''}</div></div>`;
+                    return `<div class="oa-result-item"><div class="oa-result-title">${escapeHtml(item.title || '')}</div><div class="oa-result-meta">${escapeHtml(item.authors || '')} | ${escapeHtml(item.journal || '')} ${item.year ? '(' + item.year + ')' : ''} | ${item.citations || 0} ${escapeHtml(t('openalex.citations_word'))} ${item.open_access ? '| ' + escapeHtml(t('openalex.open_access')) : ''}</div></div>`;
                 } else if (type === 'authors') {
-                    return `<div class="oa-result-item"><div class="oa-result-title">${escapeHtml(item.name || '')}</div><div class="oa-result-meta">${escapeHtml(item.institution || '')} | ${item.works_count || 0} eser | ${item.cited_by_count || 0} atif</div></div>`;
+                    return `<div class="oa-result-item"><div class="oa-result-title">${escapeHtml(item.name || '')}</div><div class="oa-result-meta">${escapeHtml(item.institution || '')} | ${item.works_count || 0} ${escapeHtml(t('openalex.works_word'))} | ${item.cited_by_count || 0} ${escapeHtml(t('openalex.citations_word'))}</div></div>`;
                 } else {
-                    return `<div class="oa-result-item"><div class="oa-result-title">${escapeHtml(item.name || '')}</div><div class="oa-result-meta">${escapeHtml(item.city || '')} ${escapeHtml(item.country || '')} | ${item.works_count || 0} eser</div></div>`;
+                    return `<div class="oa-result-item"><div class="oa-result-title">${escapeHtml(item.name || '')}</div><div class="oa-result-meta">${escapeHtml(item.city || '')} ${escapeHtml(item.country || '')} | ${item.works_count || 0} ${escapeHtml(t('openalex.works_word'))}</div></div>`;
                 }
             }).join('');
     } catch (err) {
-        resultsEl.innerHTML = '<p style="color:var(--danger);padding:16px">Arama hatasi: ' + err.message + '</p>';
+        resultsEl.innerHTML = `<p style="color:var(--danger);padding:16px">${escapeHtml(t('openalex.search_error', { err: err.message }))}</p>`;
     }
 }
 
@@ -769,13 +807,44 @@ function showToast(msg) {
 
 // ─── Auto-Sync Banner ───────────────────────────────────────────────────────
 
+// ─── Locale change handling ─────────────────────────────────────────────────
+// When the user toggles TR/EN, re-render the active list page so dynamic
+// strings (counts, button labels, card metadata) update without a reload.
+// We also keep the highlighted .lang-btn in sync with the current locale.
+function _refreshActivePage() {
+    const active = document.querySelector('.page.active-page');
+    if (!active) return;
+    const id = active.id;
+    if (id === 'page-files') loadFiles();
+    else if (id === 'page-universities') loadUniversities();
+    else if (id === 'page-academics') loadAcademics();
+    else if (id === 'page-publications') loadPublications();
+    else if (id === 'page-stats') loadStats();
+    else if (id === 'page-knowledge') loadKnowledge();
+    // Storage label uses formatFileSize; refresh by reloading files when on files page.
+}
+
+function _syncLangButtons(code) {
+    document.querySelectorAll('#langSwitch .lang-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.lang === code);
+    });
+}
+
+document.addEventListener('lang-ready', (e) => {
+    _syncLangButtons(e.detail?.lang);
+});
+document.addEventListener('lang-change', (e) => {
+    _syncLangButtons(e.detail?.lang);
+    _refreshActivePage();
+});
+
 function showSyncBanner() {
     let banner = document.getElementById('syncBanner');
     if (!banner) {
         banner = document.createElement('div');
         banner.id = 'syncBanner';
         banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,#1a73e8,#4285f4);color:#fff;padding:12px 24px;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,.2);display:flex;align-items:center;gap:12px';
-        banner.innerHTML = '<span class="spinner" style="border-color:rgba(255,255,255,.3);border-top-color:#fff"></span><div id="syncBannerContent">Turkiye akademik verileri yukleniyor...</div><button onclick="hideSyncBanner()" style="background:none;border:none;color:#fff;cursor:pointer;font-size:18px;margin-left:auto">&times;</button>';
+        banner.innerHTML = `<span class="spinner" style="border-color:rgba(255,255,255,.3);border-top-color:#fff"></span><div id="syncBannerContent">${escapeHtml(t('common.sync_banner'))}</div><button onclick="hideSyncBanner()" style="background:none;border:none;color:#fff;cursor:pointer;font-size:18px;margin-left:auto">&times;</button>`;
         document.body.prepend(banner);
     }
     banner.style.display = 'flex';
@@ -789,7 +858,13 @@ function hideSyncBanner() {
 function updateSyncBanner(data) {
     const content = document.getElementById('syncBannerContent');
     if (!content) return;
-    const phaseLabels = { starting: 'Baslatiliyor...', institutions: 'Universiteler yukleniyor', authors: 'Akademisyenler yukleniyor', works: 'Yayinlar yukleniyor', completed: 'Tamamlandi!' };
+    const phaseLabels = {
+        starting: t('openalex.phase_starting'),
+        institutions: t('openalex.phase_institutions_loading'),
+        authors: t('openalex.phase_authors_loading'),
+        works: t('openalex.phase_works_loading'),
+        completed: t('openalex.phase_completed_excl'),
+    };
     const phase = data.phase || 'starting';
     const fetched = data.phase_fetched || 0;
     const total = data.phase_total || 0;
