@@ -109,6 +109,11 @@ const translations = {
         loadingPublications: 'OpenAlex\'ten yayinlar yukleniyor...',
         openalexPublications: 'OpenAlex Yayinlari',
         citations: 'atif',
+        hIndex: 'H-Index',
+        i10Index: 'i10-Index',
+        totalCitations: 'Toplam Atif',
+        totalWorks: 'Toplam Eser',
+        authorMetrics: 'Akademik Metrikler',
         acadDetail: 'Akademisyen Detayi',
         // Publications
         pubTitle: 'Yayinlar',
@@ -266,6 +271,11 @@ const translations = {
         loadingPublications: 'Loading publications from OpenAlex...',
         openalexPublications: 'OpenAlex Publications',
         citations: 'citations',
+        hIndex: 'H-Index',
+        i10Index: 'i10-Index',
+        totalCitations: 'Total Citations',
+        totalWorks: 'Total Works',
+        authorMetrics: 'Academic Metrics',
         acadDetail: 'Academic Detail',
         pubTitle: 'Publications',
         pubSearchPlaceholder: 'Search publication, author or journal...',
@@ -899,8 +909,35 @@ async function fetchOpenAlexPublications(academicId) {
     try {
         const res = await fetch(`${API}/api/academics/${academicId}/publications/openalex`);
         const data = await res.json();
+
+        let statsHtml = '';
+        if (data.author_stats && (data.author_stats.h_index || data.author_stats.i10_index || data.author_stats.cited_by_count)) {
+            const s = data.author_stats;
+            statsHtml = `
+                <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+                    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 20px;text-align:center;min-width:100px">
+                        <div style="font-size:24px;font-weight:700;color:var(--primary)">${s.h_index || 0}</div>
+                        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${t('hIndex')}</div>
+                    </div>
+                    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 20px;text-align:center;min-width:100px">
+                        <div style="font-size:24px;font-weight:700;color:var(--primary)">${s.i10_index || 0}</div>
+                        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${t('i10Index')}</div>
+                    </div>
+                    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 20px;text-align:center;min-width:100px">
+                        <div style="font-size:24px;font-weight:700;color:var(--primary)">${(s.cited_by_count || 0).toLocaleString()}</div>
+                        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${t('totalCitations')}</div>
+                    </div>
+                    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 20px;text-align:center;min-width:100px">
+                        <div style="font-size:24px;font-weight:700;color:var(--primary)">${(s.works_count || 0).toLocaleString()}</div>
+                        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${t('totalWorks')}</div>
+                    </div>
+                </div>
+            `;
+        }
+
         if (data.results && data.results.length > 0) {
             container.innerHTML = `
+                ${statsHtml}
                 <h4 style="margin-bottom:8px">${t('openalexPublications')} (${data.total})</h4>
                 <div class="detail-list">
                     ${data.results.map(p => `
@@ -916,7 +953,7 @@ async function fetchOpenAlexPublications(academicId) {
                 </div>
             `;
         } else {
-            container.innerHTML = `<p style="color:var(--text-secondary)">${t('noPublications')}</p>`;
+            container.innerHTML = statsHtml + `<p style="color:var(--text-secondary)">${t('noPublications')}</p>`;
         }
     } catch (err) {
         container.innerHTML = `<p style="color:var(--text-secondary)">${t('noPublications')}</p>`;

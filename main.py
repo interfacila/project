@@ -1,4 +1,3 @@
-import os
 import threading
 import uuid
 from pathlib import Path
@@ -440,7 +439,7 @@ def get_academic_publications_from_openalex(academic_id: int, db: Session = Depe
         raise HTTPException(status_code=404, detail="Akademisyen bulunamadı")
 
     if not acad.profile_url:
-        return {"results": [], "total": 0}
+        return {"results": [], "total": 0, "author_stats": {}}
 
     openalex_id = acad.profile_url
     if openalex_id.startswith("https://openalex.org/"):
@@ -448,6 +447,22 @@ def get_academic_publications_from_openalex(academic_id: int, db: Session = Depe
 
     try:
         from openalex_module import _get
+
+        # Fetch author profile for h-index, i10-index, cited_by_count
+        author_stats = {}
+        try:
+            author_data = _get(f"/authors/{openalex_id}", {})
+            summary = author_data.get("summary_stats", {})
+            author_stats = {
+                "h_index": summary.get("h_index", 0),
+                "i10_index": summary.get("i10_index", 0),
+                "cited_by_count": author_data.get("cited_by_count", 0),
+                "works_count": author_data.get("works_count", 0),
+            }
+        except Exception:
+            pass
+
+        # Fetch publications
         data = _get("/works", {"filter": f"author.id:{openalex_id}", "per_page": 50, "sort": "publication_year:desc"})
         results = []
         for item in data.get("results", []):
@@ -474,6 +489,7 @@ def get_academic_publications_from_openalex(academic_id: int, db: Session = Depe
         return {
             "results": results,
             "total": data.get("meta", {}).get("count", 0),
+            "author_stats": author_stats,
         }
     except (KeyError, ValueError, ConnectionError) as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
