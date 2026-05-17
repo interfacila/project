@@ -868,8 +868,9 @@ async function showAcademicDetail(id) {
         const res = await fetch(`${API}/api/academics/${id}`);
         const a = await res.json();
 
+        const hasDbPubs = a.publications && a.publications.length > 0;
         let pubsHtml = '';
-        if (a.publications && a.publications.length > 0) {
+        if (hasDbPubs) {
             pubsHtml = `
                 <h4 style="margin-top:20px;margin-bottom:8px">${t('publicationsLabel')} (${a.publications.length})</h4>
                 <div class="detail-list">
@@ -891,29 +892,27 @@ async function showAcademicDetail(id) {
             <div style="margin-top:16px"><strong style="font-size:13px;color:var(--text-secondary)">${t('researchAreas')}</strong>
                 <div class="card-tags" style="margin-top:8px">${(a.research_areas || '').split(',').filter(x=>x.trim()).map(area => `<span class="tag">${escapeHtml(area.trim())}</span>`).join('')}</div>
             </div>
+            <div id="openalex-metrics-${id}" style="margin-top:16px"></div>
             ${pubsHtml}
         `;
         document.getElementById('academicModal').style.display = 'flex';
 
-        if (!a.publications || a.publications.length === 0) {
-            fetchOpenAlexPublications(id);
-        }
+        fetchOpenAlexData(id, hasDbPubs);
     } catch (err) {
         console.error('Academic detail error:', err);
     }
 }
 
-async function fetchOpenAlexPublications(academicId) {
-    const container = document.getElementById(`openalex-pubs-${academicId}`);
-    if (!container) return;
+async function fetchOpenAlexData(academicId, hasDbPubs) {
+    const metricsContainer = document.getElementById(`openalex-metrics-${academicId}`);
+    const pubsContainer = document.getElementById(`openalex-pubs-${academicId}`);
     try {
         const res = await fetch(`${API}/api/academics/${academicId}/publications/openalex`);
         const data = await res.json();
 
-        let statsHtml = '';
-        if (data.author_stats && (data.author_stats.h_index || data.author_stats.i10_index || data.author_stats.cited_by_count)) {
+        if (metricsContainer && data.author_stats && (data.author_stats.h_index || data.author_stats.i10_index || data.author_stats.cited_by_count)) {
             const s = data.author_stats;
-            statsHtml = `
+            metricsContainer.innerHTML = `
                 <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
                     <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 20px;text-align:center;min-width:100px">
                         <div style="font-size:24px;font-weight:700;color:var(--primary)">${s.h_index || 0}</div>
@@ -935,28 +934,31 @@ async function fetchOpenAlexPublications(academicId) {
             `;
         }
 
-        if (data.results && data.results.length > 0) {
-            container.innerHTML = `
-                ${statsHtml}
-                <h4 style="margin-bottom:8px">${t('openalexPublications')} (${data.total})</h4>
-                <div class="detail-list">
-                    ${data.results.map(p => `
-                        <div class="detail-list-item">
-                            <strong>${escapeHtml(p.title || '')}</strong>
-                            <span style="color:var(--text-secondary);font-size:13px">
-                                ${escapeHtml(p.journal || '')} ${p.year ? '(' + p.year + ')' : ''}
-                                ${p.citations ? ' | ' + p.citations + ' ' + t('citations') : ''}
-                            </span>
-                            ${p.doi ? `<a href="${p.doi}" target="_blank" style="font-size:12px;color:var(--primary);margin-top:2px">DOI</a>` : ''}
-                        </div>
-                    `).join('')}
-                </div>
-            `;
-        } else {
-            container.innerHTML = statsHtml + `<p style="color:var(--text-secondary)">${t('noPublications')}</p>`;
+        if (!hasDbPubs && pubsContainer) {
+            if (data.results && data.results.length > 0) {
+                pubsContainer.innerHTML = `
+                    <h4 style="margin-bottom:8px">${t('openalexPublications')} (${data.total})</h4>
+                    <div class="detail-list">
+                        ${data.results.map(p => `
+                            <div class="detail-list-item">
+                                <strong>${escapeHtml(p.title || '')}</strong>
+                                <span style="color:var(--text-secondary);font-size:13px">
+                                    ${escapeHtml(p.journal || '')} ${p.year ? '(' + p.year + ')' : ''}
+                                    ${p.citations ? ' | ' + p.citations + ' ' + t('citations') : ''}
+                                </span>
+                                ${p.doi ? `<a href="${p.doi}" target="_blank" style="font-size:12px;color:var(--primary);margin-top:2px">DOI</a>` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            } else {
+                pubsContainer.innerHTML = `<p style="color:var(--text-secondary)">${t('noPublications')}</p>`;
+            }
         }
     } catch (err) {
-        container.innerHTML = `<p style="color:var(--text-secondary)">${t('noPublications')}</p>`;
+        if (!hasDbPubs && pubsContainer) {
+            pubsContainer.innerHTML = `<p style="color:var(--text-secondary)">${t('noPublications')}</p>`;
+        }
     }
 }
 
