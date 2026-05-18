@@ -775,13 +775,171 @@ def openalex_import_institutions(
     return result
 
 
+# ─── MongoDB Endpoints ───────────────────────────────────────────────────────
+
+@app.get("/api/mongo/stats")
+def mongo_stats():
+    """Get MongoDB collection stats."""
+    try:
+        from mongo_db import get_mongo_db, get_sync_status
+        mdb = get_mongo_db()
+        uni_count = mdb.universities.count_documents({})
+        acad_count = mdb.academics.count_documents({})
+        uni_status = get_sync_status("universities")
+        acad_status = get_sync_status("academics")
+        return {
+            "connected": True,
+            "universities": uni_count,
+            "academics": acad_count,
+            "university_sync": {
+                "completed": uni_status.get("completed", False),
+                "api_total": uni_status.get("api_total", 0),
+                "total_fetched": uni_status.get("total_fetched", 0),
+            } if uni_status else None,
+            "academic_sync": {
+                "completed": acad_status.get("completed", False),
+                "api_total": acad_status.get("api_total", 0),
+                "total_fetched": acad_status.get("total_fetched", 0),
+            } if acad_status else None,
+        }
+    except Exception as e:
+        return {"connected": False, "error": str(e)}
+
+
+@app.get("/api/mongo/universities")
+def mongo_universities(
+    search: Optional[str] = None,
+    city: Optional[str] = None,
+    uni_type: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 50,
+):
+    """Search universities from MongoDB."""
+    try:
+        from mongo_db import get_mongo_db
+        mdb = get_mongo_db()
+        query: dict = {}
+        if search:
+            query["name"] = {"$regex": search, "$options": "i"}
+        if city:
+            query["city"] = {"$regex": city, "$options": "i"}
+        if uni_type:
+            query["type"] = uni_type
+
+        total = mdb.universities.count_documents(query)
+        skip = (page - 1) * per_page
+        results = list(
+            mdb.universities.find(query, {"_id": 0})
+            .sort("name", 1)
+            .skip(skip)
+            .limit(per_page)
+        )
+        return {"total": total, "page": page, "per_page": per_page, "results": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/mongo/academics")
+def mongo_academics(
+    search: Optional[str] = None,
+    university: Optional[str] = None,
+    field: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 50,
+):
+    """Search academics from MongoDB."""
+    try:
+        from mongo_db import get_mongo_db
+        mdb = get_mongo_db()
+        query: dict = {}
+        if search:
+            query["name"] = {"$regex": search, "$options": "i"}
+        if university:
+            query["university_name"] = {"$regex": university, "$options": "i"}
+        if field:
+            query["field"] = {"$regex": field, "$options": "i"}
+
+        total = mdb.academics.count_documents(query)
+        skip = (page - 1) * per_page
+        results = list(
+            mdb.academics.find(query, {"_id": 0})
+            .sort("name", 1)
+            .skip(skip)
+            .limit(per_page)
+        )
+        return {"total": total, "page": page, "per_page": per_page, "results": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/mongo/academics/{openalex_id:path}")
+def mongo_academic_detail(openalex_id: str):
+    """Get a single academic's full data from MongoDB."""
+    try:
+        from mongo_db import get_mongo_db
+        mdb = get_mongo_db()
+        if not openalex_id.startswith("https://"):
+            openalex_id = f"https://openalex.org/{openalex_id}"
+        doc = mdb.academics.find_one({"openalex_id": openalex_id}, {"_id": 0})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Akademisyen bulunamadi")
+        return doc
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/api/mongo/sync/start")
+def mongo_sync_start(sync_type: str = "all"):
+    """Start a MongoDB sync in background thread."""
+    import threading
+    from sync_openalex_mongo import sync_academics, sync_universities
+    from mongo_db import init_mongo_indexes, get_sync_status
+
+    # Check if already running
+    if sync_type in ("all", "universities"):
+        status = get_sync_status("universities")
+        if status and not status.get("completed") and status.get("total_fetched", 0) > 0:
+            return {"detail": "Universite sync zaten devam ediyor", "status": "running"}
+    if sync_type in ("all", "academics"):
+        status = get_sync_status("academics")
+        if status and not status.get("completed") and status.get("total_fetched", 0) > 0:
+            return {"detail": "Akademisyen sync zaten devam ediyor", "status": "running"}
+
+    def _run_sync():
+        init_mongo_indexes()
+        if sync_type in ("all", "universities"):
+            sync_universities()
+        if sync_type in ("all", "academics"):
+            sync_academics()
+
+    thread = threading.Thread(target=_run_sync, daemon=True)
+    thread.start()
+    return {"detail": "MongoDB sync baslatildi", "status": "started", "sync_type": sync_type}
+
+
+@app.get("/api/mongo/sync/status")
+def mongo_sync_status():
+    """Get current MongoDB sync status."""
+    try:
+        from mongo_db import get_sync_status
+        return {
+            "universities": get_sync_status("universities") or {},
+            "academics": get_sync_status("academics") or {},
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 # ─── Stats ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/stats")
 def get_stats(db: Session = Depends(get_db)):
     from models import AIQuery
 
-    return {
+    # SQLite stats
+    stats = {
         "total_files": db.query(FileModel).count(),
         "total_users": db.query(User).count(),
         "total_queries": db.query(AIQuery).count(),
@@ -790,6 +948,18 @@ def get_stats(db: Session = Depends(get_db)):
         "total_academics": db.query(Academic).count(),
         "total_publications": db.query(Publication).count(),
     }
+
+    # MongoDB stats (if available)
+    try:
+        from mongo_db import get_mongo_db
+        mdb = get_mongo_db()
+        stats["mongo_universities"] = mdb.universities.count_documents({})
+        stats["mongo_academics"] = mdb.academics.count_documents({})
+    except Exception:
+        stats["mongo_universities"] = 0
+        stats["mongo_academics"] = 0
+
+    return stats
 
 
 if __name__ == "__main__":

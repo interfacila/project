@@ -1381,6 +1381,7 @@ function handleSearch(query) {
             else if (id === 'page-universities') loadUniversities();
             else if (id === 'page-academics') loadAcademics();
             else if (id === 'page-publications') loadPublications();
+            else if (id === 'page-mongo') loadMongoStats();
         }
     }, 300);
 }
@@ -1460,6 +1461,126 @@ async function checkAutoSync() {
             setTimeout(poll, 2000);
         }
     } catch (e) { /* ignore */ }
+}
+
+// ─── MongoDB ────────────────────────────────────────────────────────────────
+
+async function loadMongoStats() {
+    const el = document.getElementById('mongoSyncInfo');
+    if (!el) return;
+    try {
+        const res = await fetch(`${API}/api/mongo/stats`);
+        const d = await res.json();
+        if (!d.connected) {
+            el.innerHTML = `<span style="color:var(--danger)">MongoDB baglantisi yok: ${escapeHtml(d.error || '')}</span>`;
+            return;
+        }
+        let html = `<div style="display:flex;gap:16px;flex-wrap:wrap">`;
+        html += `<div><strong>${formatNumber(d.universities)}</strong> universite</div>`;
+        html += `<div><strong>${formatNumber(d.academics)}</strong> akademisyen</div>`;
+        html += `</div>`;
+        if (d.university_sync) {
+            const us = d.university_sync;
+            html += `<div style="margin-top:8px;font-size:12px;color:var(--text-secondary)">Universite sync: ${us.completed ? 'Tamamlandi' : 'Devam ediyor'} (${formatNumber(us.total_fetched)}/${formatNumber(us.api_total)})</div>`;
+        }
+        if (d.academic_sync) {
+            const as2 = d.academic_sync;
+            html += `<div style="font-size:12px;color:var(--text-secondary)">Akademisyen sync: ${as2.completed ? 'Tamamlandi' : 'Devam ediyor'} (${formatNumber(as2.total_fetched)}/${formatNumber(as2.api_total)})</div>`;
+        }
+        el.innerHTML = html;
+    } catch (err) {
+        el.innerHTML = `<span style="color:var(--text-secondary)">MongoDB durumu alinamadi</span>`;
+    }
+}
+
+async function startMongoSync(syncType) {
+    try {
+        const res = await fetch(`${API}/api/mongo/sync/start?sync_type=${syncType}`, {method: 'POST'});
+        const d = await res.json();
+        const statusEl = document.getElementById('mongoSyncStatus');
+        if (statusEl) statusEl.innerHTML = `<p style="color:var(--primary)">${escapeHtml(d.detail || 'Baslatildi')}</p>`;
+        // Poll status
+        const poll = async () => {
+            try {
+                const r = await fetch(`${API}/api/mongo/sync/status`);
+                const s = await r.json();
+                let html = '';
+                if (s.universities && s.universities.total_fetched) {
+                    const u = s.universities;
+                    const pct = u.api_total ? (u.total_fetched / u.api_total * 100).toFixed(1) : 0;
+                    html += `<div>Universiteler: ${formatNumber(u.total_fetched)}/${formatNumber(u.api_total)} (${pct}%) ${u.completed ? '✓' : '...'}</div>`;
+                }
+                if (s.academics && s.academics.total_fetched) {
+                    const a = s.academics;
+                    const pct = a.api_total ? (a.total_fetched / a.api_total * 100).toFixed(1) : 0;
+                    html += `<div>Akademisyenler: ${formatNumber(a.total_fetched)}/${formatNumber(a.api_total)} (${pct}%) ${a.completed ? '✓' : '...'}</div>`;
+                }
+                if (statusEl) statusEl.innerHTML = html;
+                const uDone = !s.universities || s.universities.completed || !s.universities.total_fetched;
+                const aDone = !s.academics || s.academics.completed || !s.academics.total_fetched;
+                if (!uDone || !aDone) setTimeout(poll, 3000);
+                else { loadMongoStats(); showToast('MongoDB sync tamamlandi!'); }
+            } catch(e) { setTimeout(poll, 5000); }
+        };
+        setTimeout(poll, 3000);
+    } catch (err) {
+        showToast('Sync baslatilamadi: ' + err.message);
+    }
+}
+
+let mongoSearchPage = 1;
+async function searchMongo(page) {
+    mongoSearchPage = page || 1;
+    const type = document.getElementById('mongoSearchType').value;
+    const query = document.getElementById('mongoSearchQuery').value;
+    const container = document.getElementById('mongoResults');
+    if (!container) return;
+    if (!query) { container.innerHTML = ''; return; }
+    container.innerHTML = '<p style="color:var(--text-secondary)">Araniyor...</p>';
+    try {
+        const res = await fetch(`${API}/api/mongo/${type}?search=${encodeURIComponent(query)}&page=${mongoSearchPage}&per_page=20`);
+        const d = await res.json();
+        if (!d.results || d.results.length === 0) {
+            container.innerHTML = '<p style="color:var(--text-secondary)">Sonuc bulunamadi.</p>';
+            return;
+        }
+        let html = `<div style="margin-bottom:8px;font-size:13px;color:var(--text-secondary)">${formatNumber(d.total)} sonuc (sayfa ${d.page})</div>`;
+        if (type === 'academics') {
+            html += d.results.map(a => `
+                <div style="padding:10px 12px;border-bottom:1px solid var(--border);font-size:13px">
+                    <strong>${escapeHtml(a.name)}</strong>
+                    ${a.university_name ? '<span style="color:var(--text-secondary)"> — ' + escapeHtml(a.university_name) + '</span>' : ''}
+                    <div style="margin-top:4px;font-size:12px;color:var(--text-secondary)">
+                        h-index: ${a.h_index || 0} | i10: ${a.i10_index || 0} | Atif: ${formatNumber(a.cited_by_count || 0)} | Eser: ${formatNumber(a.works_count || 0)}
+                        ${a.field ? ' | ' + escapeHtml(a.field) : ''}
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            html += d.results.map(u => `
+                <div style="padding:10px 12px;border-bottom:1px solid var(--border);font-size:13px">
+                    <strong>${escapeHtml(u.name)}</strong>
+                    ${u.city ? '<span style="color:var(--text-secondary)"> — ' + escapeHtml(u.city) + '</span>' : ''}
+                    <div style="margin-top:4px;font-size:12px;color:var(--text-secondary)">
+                        Tur: ${escapeHtml(u.university_type || u.type || '')} | Eser: ${formatNumber(u.works_count || 0)} | Atif: ${formatNumber(u.cited_by_count || 0)}
+                        ${u.homepage_url ? ' | <a href="' + escapeHtml(u.homepage_url) + '" target="_blank">Web</a>' : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+        // Pagination
+        const totalPages = Math.ceil(d.total / 20);
+        if (totalPages > 1) {
+            html += `<div style="display:flex;gap:8px;margin-top:12px;justify-content:center">`;
+            if (mongoSearchPage > 1) html += `<button class="btn-outlined" onclick="searchMongo(${mongoSearchPage - 1})">Onceki</button>`;
+            html += `<span style="padding:8px;font-size:13px">${mongoSearchPage}/${totalPages}</span>`;
+            if (mongoSearchPage < totalPages) html += `<button class="btn-outlined" onclick="searchMongo(${mongoSearchPage + 1})">Sonraki</button>`;
+            html += `</div>`;
+        }
+        container.innerHTML = html;
+    } catch (err) {
+        container.innerHTML = `<p style="color:var(--danger)">Hata: ${escapeHtml(err.message)}</p>`;
+    }
 }
 
 // ─── Init ───────────────────────────────────────────────────────────────────
