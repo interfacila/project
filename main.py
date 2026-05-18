@@ -448,8 +448,9 @@ def get_academic_publications_from_openalex(academic_id: int, db: Session = Depe
     try:
         from openalex_module import _get
 
-        # Fetch author profile for h-index, i10-index, cited_by_count
+        # Fetch author profile for h-index, i10-index, cited_by_count, affiliations
         author_stats = {}
+        affiliation_info = {}
         try:
             author_data = _get(f"/authors/{openalex_id}", {})
             summary = author_data.get("summary_stats", {})
@@ -459,6 +460,32 @@ def get_academic_publications_from_openalex(academic_id: int, db: Session = Depe
                 "cited_by_count": author_data.get("cited_by_count", 0),
                 "works_count": author_data.get("works_count", 0),
             }
+
+            # Extract affiliation info
+            last_institutions = author_data.get("last_known_institutions", [])
+            if last_institutions:
+                inst = last_institutions[0]
+                affiliation_info["university"] = inst.get("display_name", "")
+                affiliation_info["country"] = inst.get("country_code", "")
+
+            # Extract topics as field/department info
+            topics = author_data.get("topics", [])
+            if topics:
+                top_topic = topics[0]
+                affiliation_info["field"] = top_topic.get("field", {}).get("display_name", "")
+                affiliation_info["subfield"] = top_topic.get("subfield", {}).get("display_name", "")
+                affiliation_info["domain"] = top_topic.get("domain", {}).get("display_name", "")
+
+            # All affiliations history
+            affiliations = author_data.get("affiliations", [])
+            affiliation_info["affiliations"] = [
+                {
+                    "institution": aff.get("institution", {}).get("display_name", ""),
+                    "country": aff.get("institution", {}).get("country_code", ""),
+                    "years": aff.get("years", []),
+                }
+                for aff in affiliations
+            ]
         except Exception:
             pass
 
@@ -490,8 +517,39 @@ def get_academic_publications_from_openalex(academic_id: int, db: Session = Depe
             "results": results,
             "total": data.get("meta", {}).get("count", 0),
             "author_stats": author_stats,
+            "affiliation_info": affiliation_info,
         }
     except (KeyError, ValueError, ConnectionError) as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/academics/{academic_id}/publications/scholar")
+def get_academic_publications_from_scholar(academic_id: int, db: Session = Depends(get_db)):
+    """Fetch publications from Google Scholar using the academic's name."""
+    acad = db.query(Academic).filter(Academic.id == academic_id).first()
+    if not acad:
+        raise HTTPException(status_code=404, detail="Akademisyen bulunamadı")
+
+    try:
+        from scholar_module import search_google_scholar
+        result = search_google_scholar(acad.full_name)
+        return result
+    except (ConnectionError, TimeoutError) as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/academics/{academic_id}/publications/yok")
+def get_academic_publications_from_yok(academic_id: int, db: Session = Depends(get_db)):
+    """Fetch publications from YÖK Akademik using the academic's name."""
+    acad = db.query(Academic).filter(Academic.id == academic_id).first()
+    if not acad:
+        raise HTTPException(status_code=404, detail="Akademisyen bulunamadı")
+
+    try:
+        from yok_module import search_yok_academic
+        result = search_yok_academic(acad.full_name)
+        return result
+    except (ConnectionError, TimeoutError) as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 

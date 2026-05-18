@@ -115,6 +115,24 @@ const translations = {
         totalWorks: 'Toplam Eser',
         authorMetrics: 'Akademik Metrikler',
         acadDetail: 'Akademisyen Detayi',
+        sourceOpenAlex: 'OpenAlex',
+        sourceScholar: 'Google Scholar',
+        sourceYok: 'YÖK Akademik',
+        loadingScholar: 'Google Scholar\'dan veriler yukleniyor...',
+        loadingYok: 'YÖK Akademik\'ten veriler yukleniyor...',
+        scholarPublications: 'Google Scholar Yayinlari',
+        yokPublications: 'YÖK Akademik Yayinlari',
+        scholarError: 'Google Scholar verileri alinamadi.',
+        yokError: 'YÖK Akademik verileri alinamadi.',
+        articleType: 'Makale',
+        proceedingType: 'Bildiri',
+        bookType: 'Kitap',
+        affiliationInfo: 'Kurum Bilgileri',
+        fieldLabel: 'Alan',
+        subfieldLabel: 'Alt Alan',
+        domainLabel: 'Domain',
+        countryLabel: 'Ulke',
+        affiliationHistory: 'Kurum Gecmisi',
         // Publications
         pubTitle: 'Yayinlar',
         pubSearchPlaceholder: 'Yayin, yazar veya dergi ara...',
@@ -277,6 +295,24 @@ const translations = {
         totalWorks: 'Total Works',
         authorMetrics: 'Academic Metrics',
         acadDetail: 'Academic Detail',
+        sourceOpenAlex: 'OpenAlex',
+        sourceScholar: 'Google Scholar',
+        sourceYok: 'YÖK Academic',
+        loadingScholar: 'Loading data from Google Scholar...',
+        loadingYok: 'Loading data from YÖK Academic...',
+        scholarPublications: 'Google Scholar Publications',
+        yokPublications: 'YÖK Academic Publications',
+        scholarError: 'Could not fetch Google Scholar data.',
+        yokError: 'Could not fetch YÖK Academic data.',
+        articleType: 'Article',
+        proceedingType: 'Proceeding',
+        bookType: 'Book',
+        affiliationInfo: 'Affiliation Info',
+        fieldLabel: 'Field',
+        subfieldLabel: 'Subfield',
+        domainLabel: 'Domain',
+        countryLabel: 'Country',
+        affiliationHistory: 'Affiliation History',
         pubTitle: 'Publications',
         pubSearchPlaceholder: 'Search publication, author or journal...',
         allYears: 'All Years',
@@ -869,17 +905,17 @@ async function showAcademicDetail(id) {
         const a = await res.json();
 
         const hasDbPubs = a.publications && a.publications.length > 0;
-        let pubsHtml = '';
+        let dbPubsHtml = '';
         if (hasDbPubs) {
-            pubsHtml = `
-                <h4 style="margin-top:20px;margin-bottom:8px">${t('publicationsLabel')} (${a.publications.length})</h4>
+            dbPubsHtml = `
+                <h4 style="margin-top:12px;margin-bottom:8px">${t('publicationsLabel')} (${a.publications.length})</h4>
                 <div class="detail-list">
                     ${a.publications.map(p => `<div class="detail-list-item"><strong>${escapeHtml(p.title)}</strong><span style="color:var(--text-secondary);font-size:13px">${escapeHtml(p.journal || '')} ${p.year ? '(' + p.year + ')' : ''}</span></div>`).join('')}
                 </div>
             `;
-        } else {
-            pubsHtml = `<div id="openalex-pubs-${id}" style="margin-top:16px"><p style="color:var(--text-secondary)"><span class="spinner" style="width:14px;height:14px;border-width:2px;vertical-align:middle;margin-right:8px"></span>${t('loadingPublications')}</p></div>`;
         }
+
+        const spinnerHtml = '<span class="spinner" style="width:14px;height:14px;border-width:2px;vertical-align:middle;margin-right:8px"></span>';
 
         document.getElementById('academicDetail').innerHTML = `
             <h3 style="margin-bottom:16px">${escapeHtml(a.title || '')} ${escapeHtml(a.name)}</h3>
@@ -893,72 +929,263 @@ async function showAcademicDetail(id) {
                 <div class="card-tags" style="margin-top:8px">${(a.research_areas || '').split(',').filter(x=>x.trim()).map(area => `<span class="tag">${escapeHtml(area.trim())}</span>`).join('')}</div>
             </div>
             <div id="openalex-metrics-${id}" style="margin-top:16px"></div>
-            ${pubsHtml}
+            ${dbPubsHtml}
+            <div style="margin-top:20px">
+                <div class="source-tabs" style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
+                    <button class="source-tab active" onclick="switchSourceTab(${id},'openalex')" id="tab-openalex-${id}" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px">${t('sourceOpenAlex')}</button>
+                    <button class="source-tab" onclick="switchSourceTab(${id},'scholar')" id="tab-scholar-${id}" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:500;color:var(--text-secondary);border-bottom:2px solid transparent;margin-bottom:-2px">${t('sourceScholar')}</button>
+                    <button class="source-tab" onclick="switchSourceTab(${id},'yok')" id="tab-yok-${id}" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:500;color:var(--text-secondary);border-bottom:2px solid transparent;margin-bottom:-2px">${t('sourceYok')}</button>
+                </div>
+                <div id="source-openalex-${id}" style="display:block">
+                    <p style="color:var(--text-secondary)">${spinnerHtml}${t('loadingPublications')}</p>
+                </div>
+                <div id="source-scholar-${id}" style="display:none">
+                    <p style="color:var(--text-secondary)">${spinnerHtml}${t('loadingScholar')}</p>
+                </div>
+                <div id="source-yok-${id}" style="display:none">
+                    <p style="color:var(--text-secondary)">${spinnerHtml}${t('loadingYok')}</p>
+                </div>
+            </div>
         `;
         document.getElementById('academicModal').style.display = 'flex';
 
         fetchOpenAlexData(id, hasDbPubs);
+        fetchScholarData(id);
+        fetchYokData(id);
     } catch (err) {
         console.error('Academic detail error:', err);
     }
 }
 
+function switchSourceTab(academicId, source) {
+    ['openalex', 'scholar', 'yok'].forEach(s => {
+        const tab = document.getElementById(`tab-${s}-${academicId}`);
+        const content = document.getElementById(`source-${s}-${academicId}`);
+        if (tab && content) {
+            if (s === source) {
+                tab.style.color = 'var(--primary)';
+                tab.style.fontWeight = '600';
+                tab.style.borderBottom = '2px solid var(--primary)';
+                content.style.display = 'block';
+            } else {
+                tab.style.color = 'var(--text-secondary)';
+                tab.style.fontWeight = '500';
+                tab.style.borderBottom = '2px solid transparent';
+                content.style.display = 'none';
+            }
+        }
+    });
+}
+
+function renderMetricsCards(stats, prefix) {
+    if (!stats || (!stats.h_index && !stats.i10_index && !stats.cited_by_count)) return '';
+    const s = stats;
+    return `
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 20px;text-align:center;min-width:100px">
+                <div style="font-size:24px;font-weight:700;color:var(--primary)">${s.h_index || 0}</div>
+                <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${t('hIndex')}</div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 20px;text-align:center;min-width:100px">
+                <div style="font-size:24px;font-weight:700;color:var(--primary)">${s.i10_index || 0}</div>
+                <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${t('i10Index')}</div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 20px;text-align:center;min-width:100px">
+                <div style="font-size:24px;font-weight:700;color:var(--primary)">${(s.cited_by_count || 0).toLocaleString()}</div>
+                <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${t('totalCitations')}</div>
+            </div>
+            ${s.works_count !== undefined ? `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 20px;text-align:center;min-width:100px">
+                <div style="font-size:24px;font-weight:700;color:var(--primary)">${(s.works_count || 0).toLocaleString()}</div>
+                <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${t('totalWorks')}</div>
+            </div>` : ''}
+        </div>
+    `;
+}
+
+function renderPubList(pubs, titleKey) {
+    if (!pubs || pubs.length === 0) return `<p style="color:var(--text-secondary)">${t('noPublications')}</p>`;
+    return `
+        <h4 style="margin-bottom:8px">${t(titleKey)} (${pubs.length})</h4>
+        <div class="detail-list">
+            ${pubs.map(p => `
+                <div class="detail-list-item">
+                    <strong>${escapeHtml(p.title || '')}</strong>
+                    <span style="color:var(--text-secondary);font-size:13px">
+                        ${escapeHtml(p.journal || p.type || '')} ${p.year ? '(' + p.year + ')' : ''}
+                        ${p.citations ? ' | ' + p.citations + ' ' + t('citations') : ''}
+                    </span>
+                    ${p.doi ? `<a href="${p.doi}" target="_blank" style="font-size:12px;color:var(--primary);margin-top:2px">DOI</a>` : ''}
+                    ${p.url && !p.doi ? `<a href="${p.url}" target="_blank" style="font-size:12px;color:var(--primary);margin-top:2px">Link</a>` : ''}
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+function renderAffiliationInfo(info) {
+    if (!info || (!info.university && !info.field)) return '';
+    let rows = '';
+    if (info.university) rows += `<tr><td style="font-weight:600;padding:4px 12px 4px 0;white-space:nowrap">${t('university')}</td><td style="padding:4px 0">${escapeHtml(info.university)}${info.country ? ' <span style="color:var(--text-secondary)">(' + escapeHtml(info.country) + ')</span>' : ''}</td></tr>`;
+    if (info.field) rows += `<tr><td style="font-weight:600;padding:4px 12px 4px 0;white-space:nowrap">${t('fieldLabel')}</td><td style="padding:4px 0">${escapeHtml(info.field)}</td></tr>`;
+    if (info.subfield) rows += `<tr><td style="font-weight:600;padding:4px 12px 4px 0;white-space:nowrap">${t('subfieldLabel')}</td><td style="padding:4px 0">${escapeHtml(info.subfield)}</td></tr>`;
+    if (info.domain) rows += `<tr><td style="font-weight:600;padding:4px 12px 4px 0;white-space:nowrap">${t('domainLabel')}</td><td style="padding:4px 0">${escapeHtml(info.domain)}</td></tr>`;
+
+    let affHistory = '';
+    if (info.affiliations && info.affiliations.length > 0) {
+        affHistory = `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--primary)">${t('affiliationHistory')} (${info.affiliations.length})</summary>
+            <div style="margin-top:6px;font-size:12px">
+                ${info.affiliations.map(a => `<div style="padding:3px 0;border-bottom:1px solid var(--border)"><strong>${escapeHtml(a.institution)}</strong> ${a.country ? '<span style="color:var(--text-secondary)">(' + escapeHtml(a.country) + ')</span>' : ''} ${a.years && a.years.length ? '<span style="color:var(--text-secondary);font-size:11px"> ' + a.years.join(', ') + '</span>' : ''}</div>`).join('')}
+            </div>
+        </details>`;
+    }
+
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:16px">
+        <h4 style="margin:0 0 8px 0;font-size:14px">${t('affiliationInfo')}</h4>
+        <table style="font-size:13px;border-collapse:collapse">${rows}</table>
+        ${affHistory}
+    </div>`;
+}
+
+function updateDetailFields(academicId, info) {
+    if (!info) return;
+    const detailEl = document.getElementById('academicDetail');
+    if (!detailEl) return;
+    const items = detailEl.querySelectorAll('.detail-item');
+    items.forEach(item => {
+        const strong = item.querySelector('strong');
+        if (!strong) return;
+        const label = strong.textContent.trim();
+        const valueNode = item.childNodes[item.childNodes.length - 1];
+        if (valueNode && valueNode.textContent.trim() === '-') {
+            if ((label === t('university') || label === 'Universite' || label === 'University') && info.university) {
+                valueNode.textContent = info.university;
+            }
+            if ((label === t('faculty') || label === 'Fakulte' || label === 'Faculty') && info.field) {
+                valueNode.textContent = info.field;
+            }
+            if ((label === t('department') || label === 'Bolum' || label === 'Department') && info.subfield) {
+                valueNode.textContent = info.subfield;
+            }
+        }
+    });
+}
+
 async function fetchOpenAlexData(academicId, hasDbPubs) {
     const metricsContainer = document.getElementById(`openalex-metrics-${academicId}`);
-    const pubsContainer = document.getElementById(`openalex-pubs-${academicId}`);
+    const container = document.getElementById(`source-openalex-${academicId}`);
     try {
         const res = await fetch(`${API}/api/academics/${academicId}/publications/openalex`);
         const data = await res.json();
 
-        if (metricsContainer && data.author_stats && (data.author_stats.h_index || data.author_stats.i10_index || data.author_stats.cited_by_count)) {
-            const s = data.author_stats;
-            metricsContainer.innerHTML = `
-                <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
-                    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 20px;text-align:center;min-width:100px">
-                        <div style="font-size:24px;font-weight:700;color:var(--primary)">${s.h_index || 0}</div>
-                        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${t('hIndex')}</div>
-                    </div>
-                    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 20px;text-align:center;min-width:100px">
-                        <div style="font-size:24px;font-weight:700;color:var(--primary)">${s.i10_index || 0}</div>
-                        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${t('i10Index')}</div>
-                    </div>
-                    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 20px;text-align:center;min-width:100px">
-                        <div style="font-size:24px;font-weight:700;color:var(--primary)">${(s.cited_by_count || 0).toLocaleString()}</div>
-                        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${t('totalCitations')}</div>
-                    </div>
-                    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 20px;text-align:center;min-width:100px">
-                        <div style="font-size:24px;font-weight:700;color:var(--primary)">${(s.works_count || 0).toLocaleString()}</div>
-                        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${t('totalWorks')}</div>
-                    </div>
-                </div>
-            `;
+        if (metricsContainer && data.author_stats) {
+            metricsContainer.innerHTML = renderMetricsCards(data.author_stats, 'openalex');
         }
 
-        if (!hasDbPubs && pubsContainer) {
-            if (data.results && data.results.length > 0) {
-                pubsContainer.innerHTML = `
-                    <h4 style="margin-bottom:8px">${t('openalexPublications')} (${data.total})</h4>
-                    <div class="detail-list">
-                        ${data.results.map(p => `
-                            <div class="detail-list-item">
-                                <strong>${escapeHtml(p.title || '')}</strong>
-                                <span style="color:var(--text-secondary);font-size:13px">
-                                    ${escapeHtml(p.journal || '')} ${p.year ? '(' + p.year + ')' : ''}
-                                    ${p.citations ? ' | ' + p.citations + ' ' + t('citations') : ''}
-                                </span>
-                                ${p.doi ? `<a href="${p.doi}" target="_blank" style="font-size:12px;color:var(--primary);margin-top:2px">DOI</a>` : ''}
-                            </div>
-                        `).join('')}
-                    </div>
-                `;
-            } else {
-                pubsContainer.innerHTML = `<p style="color:var(--text-secondary)">${t('noPublications')}</p>`;
+        // Update university/faculty/department fields from OpenAlex data
+        if (data.affiliation_info) {
+            updateDetailFields(academicId, data.affiliation_info);
+        }
+
+        if (container) {
+            let html = '';
+            if (data.affiliation_info) {
+                html += renderAffiliationInfo(data.affiliation_info);
             }
+            if (data.author_stats && (data.author_stats.h_index || data.author_stats.i10_index || data.author_stats.cited_by_count)) {
+                html += renderMetricsCards(data.author_stats, 'openalex');
+            }
+            if (data.results && data.results.length > 0) {
+                html += renderPubList(data.results, 'openalexPublications');
+            } else {
+                html += `<p style="color:var(--text-secondary)">${t('noPublications')}</p>`;
+            }
+            container.innerHTML = html;
         }
     } catch (err) {
-        if (!hasDbPubs && pubsContainer) {
-            pubsContainer.innerHTML = `<p style="color:var(--text-secondary)">${t('noPublications')}</p>`;
+        if (container) {
+            container.innerHTML = `<p style="color:var(--text-secondary)">${t('noPublications')}</p>`;
         }
+    }
+}
+
+async function fetchScholarData(academicId) {
+    const container = document.getElementById(`source-scholar-${academicId}`);
+    if (!container) return;
+    try {
+        const res = await fetch(`${API}/api/academics/${academicId}/publications/scholar`);
+        const data = await res.json();
+
+        if (data.error) {
+            container.innerHTML = `<p style="color:var(--text-secondary)">${t('scholarError')} <span style="font-size:12px">(${escapeHtml(data.error)})</span></p>`;
+            return;
+        }
+
+        let html = '';
+        // Show affiliation from Google Scholar
+        if (data.author_stats && data.author_stats.affiliation) {
+            html += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:16px">
+                <h4 style="margin:0 0 8px 0;font-size:14px">${t('affiliationInfo')}</h4>
+                <table style="font-size:13px;border-collapse:collapse">
+                    <tr><td style="font-weight:600;padding:4px 12px 4px 0">${t('university')}</td><td style="padding:4px 0">${escapeHtml(data.author_stats.affiliation)}</td></tr>
+                    ${data.author_stats.interests && data.author_stats.interests.length ? '<tr><td style="font-weight:600;padding:4px 12px 4px 0">' + t('researchAreas') + '</td><td style="padding:4px 0">' + escapeHtml(data.author_stats.interests.join(', ')) + '</td></tr>' : ''}
+                </table>
+            </div>`;
+        }
+        if (data.author_stats) {
+            html += renderMetricsCards(data.author_stats, 'scholar');
+        }
+        if (data.publications && data.publications.length > 0) {
+            html += renderPubList(data.publications, 'scholarPublications');
+        } else {
+            html += `<p style="color:var(--text-secondary)">${t('noPublications')}</p>`;
+        }
+        container.innerHTML = html;
+    } catch (err) {
+        container.innerHTML = `<p style="color:var(--text-secondary)">${t('scholarError')}</p>`;
+    }
+}
+
+async function fetchYokData(academicId) {
+    const container = document.getElementById(`source-yok-${academicId}`);
+    if (!container) return;
+    try {
+        const res = await fetch(`${API}/api/academics/${academicId}/publications/yok`);
+        const data = await res.json();
+
+        if (data.error) {
+            container.innerHTML = `<p style="color:var(--text-secondary)">${t('yokError')} <span style="font-size:12px">(${escapeHtml(data.error)})</span></p>`;
+            return;
+        }
+
+        let html = '';
+        // Show YÖK profile info (university, faculty, department)
+        if (data.profile && (data.profile.university || data.profile.faculty || data.profile.department)) {
+            let rows = '';
+            if (data.profile.university) rows += `<tr><td style="font-weight:600;padding:4px 12px 4px 0">${t('university')}</td><td style="padding:4px 0">${escapeHtml(data.profile.university)}</td></tr>`;
+            if (data.profile.faculty) rows += `<tr><td style="font-weight:600;padding:4px 12px 4px 0">${t('faculty')}</td><td style="padding:4px 0">${escapeHtml(data.profile.faculty)}</td></tr>`;
+            if (data.profile.department) rows += `<tr><td style="font-weight:600;padding:4px 12px 4px 0">${t('department')}</td><td style="padding:4px 0">${escapeHtml(data.profile.department)}</td></tr>`;
+            if (data.profile.title) rows += `<tr><td style="font-weight:600;padding:4px 12px 4px 0">${t('allTitles').replace('Tum ','').replace('All ','')}</td><td style="padding:4px 0">${escapeHtml(data.profile.title)}</td></tr>`;
+            html += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:16px">
+                <h4 style="margin:0 0 8px 0;font-size:14px">${t('affiliationInfo')}</h4>
+                <table style="font-size:13px;border-collapse:collapse">${rows}</table>
+                ${data.profile.yok_url ? '<a href="' + escapeHtml(data.profile.yok_url) + '" target="_blank" style="font-size:12px;color:var(--primary);margin-top:6px;display:inline-block">YÖK Akademik Profil →</a>' : ''}
+            </div>`;
+
+            // Also update header detail fields from YÖK data
+            updateDetailFields(academicId, {
+                university: data.profile.university,
+                field: data.profile.faculty,
+                subfield: data.profile.department,
+            });
+        }
+        if (data.publications && data.publications.length > 0) {
+            html += renderPubList(data.publications, 'yokPublications');
+        } else {
+            html += `<p style="color:var(--text-secondary)">${t('noPublications')}</p>`;
+        }
+        container.innerHTML = html;
+    } catch (err) {
+        container.innerHTML = `<p style="color:var(--text-secondary)">${t('yokError')}</p>`;
     }
 }
 
