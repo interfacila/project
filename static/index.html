@@ -22,6 +22,7 @@
         <input type="text" id="searchInput" placeholder="Dosya, akademisyen veya yayin ara..." oninput="handleSearch(this.value)">
     </div>
     <div class="header-actions">
+        <button class="lang-toggle-btn" id="langToggleBtn" onclick="setLanguage(currentLang==='tr'?'en':'tr')" title="Change Language">EN</button>
         <button class="icon-btn" title="Bildirimler"><span class="material-icons-outlined">notifications</span></button>
         <button class="icon-btn" title="Ayarlar"><span class="material-icons-outlined">settings</span></button>
         <div class="avatar">U</div>
@@ -45,6 +46,11 @@
     <div class="nav-section">
         <div class="nav-section-title">OpenAlex</div>
         <button class="nav-item" data-page="openalex" onclick="switchPage('openalex')"><span class="material-icons-outlined">cloud_download</span> Veri Cek</button>
+    </div>
+    <div class="sidebar-divider"></div>
+    <div class="nav-section">
+        <div class="nav-section-title">MongoDB</div>
+        <button class="nav-item" data-page="mongo" onclick="switchPage('mongo')"><span class="material-icons-outlined">storage</span> Buyuk Veri</button>
     </div>
     <div class="sidebar-divider"></div>
     <div class="nav-section">
@@ -142,6 +148,38 @@
                     <button class="btn-primary" onclick="searchOpenAlex()"><span class="material-icons-outlined">search</span> Ara</button>
                 </div>
                 <div id="oaResults" class="oa-results"></div>
+            </div>
+        </div>
+    </div>
+    <div id="page-mongo" class="page">
+        <div class="page-header"><h1>MongoDB Buyuk Veri</h1></div>
+        <div class="openalex-panel">
+            <div class="panel-card sync-card">
+                <div class="panel-card-header"><span class="material-icons-outlined">cloud_sync</span><h3>OpenAlex → MongoDB Sync</h3></div>
+                <p class="panel-desc">Turkiye'deki tum universiteleri (~553), akademisyenleri (~571,000) ve yayinlari (~1,680,000) OpenAlex'ten cekip MongoDB'ye kaydedin.</p>
+                <div id="mongoSyncInfo" style="margin:12px 0;padding:12px;background:var(--surface);border-radius:8px;font-size:13px">Yukleniyor...</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button class="btn-primary" onclick="startMongoSync('all')"><span class="material-icons-outlined">sync</span> Tam Sync Baslat</button>
+                    <button class="btn-outlined" onclick="startMongoSync('universities')"><span class="material-icons-outlined">account_balance</span> Sadece Universiteler</button>
+                    <button class="btn-outlined" onclick="startMongoSync('academics')"><span class="material-icons-outlined">person</span> Sadece Akademisyenler</button>
+                    <button class="btn-outlined" onclick="startMongoSync('publications')"><span class="material-icons-outlined">article</span> Sadece Yayinlar</button>
+                    <button class="btn-outlined" onclick="loadMongoStats()"><span class="material-icons-outlined">refresh</span> Yenile</button>
+                </div>
+                <div id="mongoSyncStatus" style="margin-top:12px"></div>
+            </div>
+            <div class="panel-card">
+                <div class="panel-card-header"><span class="material-icons-outlined">search</span><h3>MongoDB Arama</h3></div>
+                <p class="panel-desc">MongoDB'deki universite ve akademisyen verilerinde arama yapin.</p>
+                <div style="display:flex;gap:8px;margin-bottom:12px">
+                    <select id="mongoSearchType" style="padding:8px;border-radius:8px;border:1px solid var(--border)">
+                        <option value="academics">Akademisyenler</option>
+                        <option value="universities">Universiteler</option>
+                        <option value="publications">Yayinlar</option>
+                    </select>
+                    <input type="text" id="mongoSearchQuery" placeholder="Arama terimi..." style="flex:1;padding:8px 12px;border-radius:8px;border:1px solid var(--border)" onkeydown="if(event.key==='Enter')searchMongo()">
+                    <button class="btn-primary" onclick="searchMongo()"><span class="material-icons-outlined">search</span> Ara</button>
+                </div>
+                <div id="mongoResults"></div>
             </div>
         </div>
     </div>
