@@ -38,6 +38,14 @@ def init_mongo_indexes():
     db.academics.create_index("university_openalex_id")
     db.academics.create_index([("name", "text")])
 
+    # Publications collection
+    db.publications.create_index("openalex_id", unique=True, sparse=True)
+    db.publications.create_index("author_openalex_ids")
+    db.publications.create_index("institution_openalex_ids")
+    db.publications.create_index("year")
+    db.publications.create_index("doi", sparse=True)
+    db.publications.create_index([("title", "text")])
+
     # Sync status collection
     db.sync_status.create_index("sync_type", unique=True)
 

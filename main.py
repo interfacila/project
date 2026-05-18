@@ -890,22 +890,52 @@ def mongo_academic_detail(openalex_id: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@app.get("/api/mongo/publications")
+def mongo_publications(
+    search: Optional[str] = None,
+    author: Optional[str] = None,
+    year: Optional[int] = None,
+    page: int = 1,
+    per_page: int = 50,
+):
+    """Search publications from MongoDB."""
+    try:
+        from mongo_db import get_mongo_db
+        mdb = get_mongo_db()
+        query: dict = {}
+        if search:
+            query["title"] = {"$regex": search, "$options": "i"}
+        if author:
+            query["authors_str"] = {"$regex": author, "$options": "i"}
+        if year:
+            query["year"] = year
+
+        total = mdb.publications.count_documents(query)
+        skip = (page - 1) * per_page
+        results = list(
+            mdb.publications.find(query, {"_id": 0})
+            .sort("year", -1)
+            .skip(skip)
+            .limit(per_page)
+        )
+        return {"total": total, "page": page, "per_page": per_page, "results": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @app.post("/api/mongo/sync/start")
 def mongo_sync_start(sync_type: str = "all"):
     """Start a MongoDB sync in background thread."""
     import threading
-    from sync_openalex_mongo import sync_academics, sync_universities
+    from sync_openalex_mongo import sync_academics, sync_publications, sync_universities
     from mongo_db import init_mongo_indexes, get_sync_status
 
     # Check if already running
-    if sync_type in ("all", "universities"):
-        status = get_sync_status("universities")
-        if status and not status.get("completed") and status.get("total_fetched", 0) > 0:
-            return {"detail": "Universite sync zaten devam ediyor", "status": "running"}
-    if sync_type in ("all", "academics"):
-        status = get_sync_status("academics")
-        if status and not status.get("completed") and status.get("total_fetched", 0) > 0:
-            return {"detail": "Akademisyen sync zaten devam ediyor", "status": "running"}
+    for st in ["universities", "academics", "publications"]:
+        if sync_type in ("all", st):
+            status = get_sync_status(st)
+            if status and not status.get("completed") and status.get("total_fetched", 0) > 0:
+                return {"detail": f"{st} sync zaten devam ediyor", "status": "running"}
 
     def _run_sync():
         init_mongo_indexes()
@@ -913,6 +943,8 @@ def mongo_sync_start(sync_type: str = "all"):
             sync_universities()
         if sync_type in ("all", "academics"):
             sync_academics()
+        if sync_type in ("all", "publications"):
+            sync_publications()
 
     thread = threading.Thread(target=_run_sync, daemon=True)
     thread.start()
@@ -927,6 +959,7 @@ def mongo_sync_status():
         return {
             "universities": get_sync_status("universities") or {},
             "academics": get_sync_status("academics") or {},
+            "publications": get_sync_status("publications") or {},
         }
     except Exception as e:
         return {"error": str(e)}
@@ -955,9 +988,11 @@ def get_stats(db: Session = Depends(get_db)):
         mdb = get_mongo_db()
         stats["mongo_universities"] = mdb.universities.count_documents({})
         stats["mongo_academics"] = mdb.academics.count_documents({})
+        stats["mongo_publications"] = mdb.publications.count_documents({})
     except Exception:
         stats["mongo_universities"] = 0
         stats["mongo_academics"] = 0
+        stats["mongo_publications"] = 0
 
     return stats
 
@@ -965,4 +1000,4 @@ def get_stats(db: Session = Depends(get_db)):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8001, reload=True)
